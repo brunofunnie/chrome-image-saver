@@ -1,9 +1,12 @@
 // Image Saver — content script.
-// Runs in every page but is only "active" while the per-tab flag is on.
+// Runs on-demand in a page while the per-tab "active" flag is on.
 //
 // When active:
-//  - On mouseover we resolve the element's single most prominent image and
-//    show a floating thumbnail popover with a download button.
+//  - As the mouse moves, we find the element under the cursor, walk UP through
+//    its ancestors (~12 levels) looking for an image (<img> at any depth, or a
+//    CSS background-image), and only when the cursor is INSIDE that image's
+//    rendered rectangle we show a floating thumbnail popover next to the mouse
+//    with a download button.
 //  - The download is delegated to the background service worker.
 //
 // NOTE: this file may be injected twice in the same page — once automatically
@@ -49,7 +52,7 @@
       #__imageSaverHost__ .is-pop { position: absolute; pointer-events: auto;
         background: #1f2937; color: #f9fafb; border: 1px solid #374151;
         border-radius: 10px; box-shadow: 0 8px 24px rgba(0,0,0,.35);
-        padding: 8px; width: 168px; transform: translateY(8px); }
+        padding: 8px; width: 168px; }
       #__imageSaverHost__ .is-imgwrap { position: relative; margin-bottom: 6px; }
       #__imageSaverHost__ .is-img { display: block; max-width: 100%; max-height: 120px;
         height: auto; margin: 0 auto; border-radius: 6px; background: #111827; }
@@ -83,6 +86,16 @@
     return el;
   })();
 
+  const pop = host.querySelector(".is-pop");
+  const imgEl = host.querySelector(".is-img");
+  const nameEl = host.querySelector(".is-name");
+  const errEl = host.querySelector(".is-err");
+  const btn = host.querySelector(".is-btn");
+
+  let currentUrl = null;
+  let hideTimer = null;
+  let gotBroadcast = false; // once the background pushes set-active, trust it over the initial get-state
+
   // Small on-page toast so toggling gives instant visual feedback (no console
   // needed). Self-dismisses.
   let toastTimer = null;
@@ -95,16 +108,6 @@
     clearTimeout(toastTimer);
     toastTimer = setTimeout(() => { t.style.display = "none"; }, 1600);
   }
-
-  const pop = host.querySelector(".is-pop");
-  const imgEl = host.querySelector(".is-img");
-  const nameEl = host.querySelector(".is-name");
-  const errEl = host.querySelector(".is-err");
-  const btn = host.querySelector(".is-btn");
-
-  let currentUrl = null;
-  let hideTimer = null;
-  let gotBroadcast = false; // once the background pushes set-active, trust it over the initial get-state
 
   // True when `node` is one of our own overlay elements. We must never treat
   // our own thumbnail image, button, etc. as a page image to hover.
@@ -140,8 +143,7 @@
   function isUsable(url) {
     if (!url || typeof url !== "string") return false;
     if (url.startsWith("data:")) {
-      if (/^data:image\//i.test(url)) return true;
-      return false;
+      return /^data:image\//i.test(url);
     }
     if (/^(https?:|blob:)/i.test(url)) return true;
     return false;
@@ -155,6 +157,7 @@
 
   // Best candidate <img> for an element: its own img, else the largest
   // descendant img (excluding tracking 1x1s and data swatches).
+  // Returns { url, element } where element is the actual <img> node.
   function findBestImg(element) {
     let best = null;
     if (element.tagName === "IMG" && !isInsideHost(element)) best = element;
@@ -164,32 +167,29 @@
     for (const img of imgs) {
       if (img === element || isInsideHost(img)) continue;
       const area = imgNaturalSize(img);
-      log("  candidate img src =", img.src, "current", img.currentSrc,
-        "natural", img.naturalWidth + "x" + img.naturalHeight, "area", area);
-      // Trackers are tiny or zero; skip obvious 1x1 pixel rats.
+      // Trackers are tiny or zero; skip obvious 1:1 pixel rats.
       if (area > 0 && area < 4) continue;
       const cur = img.currentSrc || img.src;
       if (!isUsable(cur)) continue;
       if (!best || area > imgNaturalSize(best)) best = img;
     }
-    if (!best) {
-      log("findBestImg: no usable <img> resolved");
-      return null;
-    }
+    if (!best) return null;
 
     const src = best.currentSrc || best.src;
-    return isUsable(src) ? src : null;
+    if (!isUsable(src)) return null;
+    return { url: src, element: best };
   }
 
-  // Resolve a CSS background image from computed style (direct + pseudos).
+  // CSS background image (direct + pseudos). Returns { url, element }.
   function findBackgroundImage(el) {
+    // Ignore site-level backgrounds on <html>/<body>: they'd match everywhere.
+    if (el === document.documentElement || el === document.body) return null;
     const cs = getComputedStyle(el);
     const urls = extractUrls(cs.backgroundImage);
-    log("findBackgroundImage:", el.tagName, "bg =", cs.backgroundImage, "->", urls);
-    if (urls.length) return urls[urls.length - 1]; // top layer painted last
+    if (urls.length) return { url: urls[urls.length - 1], element: el };
     for (const p of ["::before", "::after"]) {
       const u = extractUrls(getComputedStyle(el, p).backgroundImage);
-      if (u.length) return u[u.length - 1];
+      if (u.length) return { url: u[u.length - 1], element: el };
     }
     return null;
   }
@@ -205,55 +205,79 @@
     return out;
   }
 
-  // Resolve the element's single prominent image (see spec priority order).
+  // Resolve one image ({url,element}) for an element, or null.
   function resolveImage(el) {
     const byImg = findBestImg(el);
-    if (byImg) {
-      log("resolveImage: <img> result for", el.tagName, el, "->", byImg);
-      return byImg;
+    if (byImg) return byImg;
+    return findBackgroundImage(el);
+  }
+
+  // The <img> or bg element's rendered box (in viewport coordinates).
+  function rectOf(imgOrEl) {
+    try {
+      const r = imgOrEl.getBoundingClientRect();
+      return r;
+    } catch (e) { return null; }
+  }
+
+  // Does a rect (viewport coords) contain point (x,y), padded by `pad` px?
+  function rectContains(r, x, y, pad) {
+    if (!r) return false;
+    const p = pad || 0;
+    return x >= r.left - p && x <= r.right + p && y >= r.top - p && y <= r.bottom + p;
+  }
+
+  // Walk up from the element under the cursor (max MAX_DEPTH levels) looking for
+  // an image that visually covers the cursor. Returns {url, element} or null.
+  const MAX_DEPTH = 12;
+  function findImageAtPoint(x, y, under) {
+    let el = under;
+    for (let depth = 0; el && depth < MAX_DEPTH; depth++, el = el.parentElement) {
+      if (!isElement(el) || isInsideHost(el)) continue;
+      const hit = resolveImage(el);
+      if (!hit) continue;
+      const r = rectOf(hit.element);
+      if (rectContains(r, x, y, 6)) {
+        log("findImageAtPoint: hit at depth", depth, "on", el.tagName, "->", hit.url, "rect", r && (r.left + "," + r.top + " " + r.width + "x" + r.height));
+        return hit;
+      }
+      log("findImageAtPoint: found image on", el.tagName, "but cursor outside its rect", r && (r.left + "," + r.top + " " + r.width + "x" + r.height));
     }
-    const bg = findBackgroundImage(el);
-    if (bg) log("resolveImage: background result for", el.tagName, el, "->", bg);
-    return bg;
+    return null;
   }
 
   // ---------- Popover ----------
-  // The overlay (#__imageSaverHost__) is `position: fixed`, so the popover is
-  // positioned in VIEWPORT coordinates — do NOT add window.scrollX/Y.
-  function placePopover(target) {
-    const r = target.getBoundingClientRect();
-    if (!r || (r.width === 0 && r.height === 0)) {
-      log("placePopover: zero-size target, skip");
-      return; // hidden/collapsed
-    }
-    const gap = 10;
-    const w = 168;
-    const estimatedH = 210;
+  // The overlay is `position: fixed`, so we use VIEWPORT coordinates only.
+  function placePopoverAt(x, y) {
+    const gap = 8;
+    const pw = 168 + 16; // content width + padding
+    const ph = 188;      // estimated height
     const vw = window.innerWidth;
     const vh = window.innerHeight;
-
-    // Prefer above the element; go below if that would overflow the top.
-    let above = !(r.top - estimatedH - gap < 0 && r.bottom + estimatedH + gap <= vh);
-
-    let left = r.left;
-    let top = Math.max(gap, above ? r.top - estimatedH - gap : r.bottom + gap);
-
-    left = Math.min(Math.max(gap, left), Math.max(gap, vw - gap - w));
-    top = Math.min(Math.max(gap, top), Math.max(gap, vh - gap - estimatedH));
-
+    let left = x + 16;
+    let top = y + 16;
+    if (left + pw > vw - gap) left = x - pw - gap;
+    if (top + ph > vh - gap) top = y - ph - gap;
+    left = Math.max(gap, Math.min(left, vw - gap - pw));
+    top = Math.max(gap, Math.min(top, vh - gap - ph));
     pop.style.left = left + "px";
     pop.style.top = top + "px";
   }
 
-  function show(target, url, name) {
-    line("show popover: url =", url, "name =", name);
-    imgEl.src = url;
-    nameEl.textContent = name;
+  function showPopover(hit, x, y) {
+    if (currentUrl === hit.url && pop.style.display === "block") {
+      // Same image: just follow the cursor.
+      placePopoverAt(x, y);
+      return;
+    }
+    line("show popover: url =", hit.url);
+    imgEl.src = hit.url;
+    nameEl.textContent = filenameFromUrl(hit.url);
     errEl.style.display = "none";
     btn.disabled = false;
-    currentUrl = url;
+    currentUrl = hit.url;
     pop.style.display = "block";
-    placePopover(target);
+    placePopoverAt(x, y);
   }
 
   function hide() {
@@ -297,49 +321,44 @@
         if (!resp || !resp.ok || err) {
           errEl.style.display = "block";
         } else {
-          // Flash a subtle "saved" state is optional; keep it minimal.
           errEl.style.display = "none";
         }
       }
     );
   });
 
-  // ---------- Hover wiring ----------
-  document.addEventListener(
-    "mouseover",
-    (e) => {
-      if (!active) { log("mouseover ignored (inactive)"); return; }
-      if (isInsideHost(e.target)) { log("mouseover on our overlay, ignored"); return; }
-      if (!isElement(e.target)) { log("mouseover on non-Element", e.target); return; }
-      const el = e.target;
-      log("mouseover on", el.tagName, el);
-      const url = resolveImage(el);
-      if (!url) {
-        log("no image found for", el.tagName, el);
-        scheduleHide(150);
-        return;
-      }
-      clearTimeout(hideTimer);
-      show(el, url, filenameFromUrl(url));
-    },
-    true
-  );
-
-  // Don't dismiss when the pointer simply crosses from the image onto our own
-  // popover (while the user reaches for the Download button).
-  document.addEventListener("mouseout", (e) => {
+  // ---------- Pointer wiring ----------
+  // Single source of truth: the cursor position. This is far more stable than
+  // mouseover/mouseout (which re-target on every child change and flicker on
+  // layered sites like Instagram).
+  document.addEventListener("mousemove", (e) => {
     if (!active) return;
-    const to = e.relatedTarget;
-    if (isInsideHost(to)) return; // moving onto the popover: keep it visible
-    scheduleHide(150);
+    const x = e.clientX, y = e.clientY;
+    let under = null;
+    try { under = document.elementFromPoint(x, y); } catch (err) { under = null; }
+    // Cursor over our own popover (e.g. heading for the Download button):
+    // keep showing the current image and cancel any pending hide — the user is
+    // interacting with the popover right now.
+    if (under && isInsideHost(under)) {
+      clearTimeout(hideTimer);
+      return;
+    }
+
+    const hit = findImageAtPoint(x, y, under);
+    if (hit) {
+      clearTimeout(hideTimer);
+      showPopover(hit, x, y);
+    } else {
+      scheduleHide(350); // grace period to avoid flicker while traveling
+    }
+  }, { passive: true });
+
+  // If the pointer leaves the document entirely, hide soon.
+  document.addEventListener("mouseleave", () => {
+    if (active) scheduleHide(400);
   });
 
   window.addEventListener("scroll", () => {
     if (active) hide();
   }, { passive: true, capture: true });
-
-  // If the pointer leaves the popover back onto the page, hide shortly after.
-  host.addEventListener("mouseleave", () => {
-    if (active) scheduleHide(150);
-  });
 })();
