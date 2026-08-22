@@ -58,6 +58,12 @@
   let currentUrl = null;
   let hideTimer = null;
 
+  // True when `node` is one of our own overlay elements. We must never treat
+  // our own thumbnail image, button, etc. as a page image to hover.
+  function isInsideHost(node) {
+    return !!(node && node.nodeType === 1 && host.contains(node));
+  }
+
   // ---------- Active-mode messaging ----------
   chrome.runtime.onMessage.addListener((msg) => {
     if (msg && msg.type === "set-active") {
@@ -98,11 +104,11 @@
   // descendant img (excluding tracking 1x1s and data swatches).
   function findBestImg(element) {
     let best = null;
-    if (element.tagName === "IMG") best = element;
+    if (element.tagName === "IMG" && !isInsideHost(element)) best = element;
 
     const imgs = element.querySelectorAll ? element.querySelectorAll("img") : [];
     for (const img of imgs) {
-      if (img === element) continue;
+      if (img === element || isInsideHost(img)) continue;
       const area = imgNaturalSize(img);
       // Trackers are tiny or zero; skip obvious 1x1 pixel rats.
       if (area > 0 && area < 4) continue;
@@ -147,30 +153,25 @@
   }
 
   // ---------- Popover ----------
+  // The overlay (#__imageSaverHost__) is `position: fixed`, so the popover is
+  // positioned in VIEWPORT coordinates — do NOT add window.scrollX/Y.
   function placePopover(target) {
     const r = target.getBoundingClientRect();
+    if (!r || (r.width === 0 && r.height === 0)) return; // hidden/collapsed
     const gap = 10;
-    // Try to put it above the element; move below if it wouldn't fit.
-    let left = r.left + window.scrollX;
-    let top = r.top + window.scrollY;
-    let above = true;
-
     const w = 168;
-    const estimatedH = 200;
+    const estimatedH = 210;
+    const vw = window.innerWidth;
     const vh = window.innerHeight;
-    if (r.top - estimatedH - gap < 0 && r.bottom + estimatedH + gap <= vh) {
-      above = false;
-    }
 
-    const viewLeft = left + w;
-    if (viewLeft > window.innerWidth - gap) {
-      left = window.innerWidth - gap - w;
-    }
-    if (left < gap) left = gap;
+    // Prefer above the element; go below if that would overflow the top.
+    let above = !(r.top - estimatedH - gap < 0 && r.bottom + estimatedH + gap <= vh);
 
-    top = above ? r.top - estimatedH - gap : r.bottom + gap;
-    if (top < gap) top = gap;
-    if (top + estimatedH > vh - gap) top = vh - gap - estimatedH;
+    let left = r.left;
+    let top = Math.max(gap, above ? r.top - estimatedH - gap : r.bottom + gap);
+
+    left = Math.min(Math.max(gap, left), Math.max(gap, vw - gap - w));
+    top = Math.min(Math.max(gap, top), Math.max(gap, vh - gap - estimatedH));
 
     pop.style.left = left + "px";
     pop.style.top = top + "px";
@@ -235,12 +236,12 @@
   document.addEventListener(
     "mouseover",
     (e) => {
-      if (!active) return;
+      if (!active || isInsideHost(e.target)) return;
       const el = e.target;
       if (!(el instanceof Element)) return;
       const url = resolveImage(el);
       if (!url) {
-        scheduleHide(120);
+        scheduleHide(150);
         return;
       }
       clearTimeout(hideTimer);
@@ -249,15 +250,21 @@
     true
   );
 
-  document.addEventListener("mouseout", () => {
+  // Don't dismiss when the pointer simply crosses from the image onto our own
+  // popover (while the user reaches for the Download button).
+  document.addEventListener("mouseout", (e) => {
     if (!active) return;
-    scheduleHide(120);
+    const to = e.relatedTarget;
+    if (isInsideHost(to)) return; // moving onto the popover: keep it visible
+    scheduleHide(150);
   });
 
   window.addEventListener("scroll", () => {
     if (active) hide();
   }, { passive: true, capture: true });
 
-  // Keep popover from following the mouse onto unrelated elements repeatedly.
-  host.addEventListener("mouseleave", () => scheduleHide(120));
+  // If the pointer leaves the popover back onto the page, hide shortly after.
+  host.addEventListener("mouseleave", () => {
+    if (active) scheduleHide(150);
+  });
 })();

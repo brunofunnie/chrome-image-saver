@@ -29,11 +29,37 @@ and download the image inside it in one click.
 - `generate-icons.js` — script that produced `icons/icon{16,48,128}.png`.
 - `icons/` — toolbar/icons.
 - `test.html` — a local page to try the extension against.
+- `test-content.js`, `test-background.js` — jsdom tests for the hover logic and
+  the service worker. Run with `npm install` then `npm test`.
+
+## Development tests
+
+```sh
+npm install     # installs jsdom (dev-only)
+npm test        # runs the content-script + background test suites
+npm run icons   # regenerates icons/ PNGs
 
 ## Manual test
 
-Open `test.html` (just double-click it) or any image-rich page, turn hover mode
-ON, hover the image boxes, and click Download.
+Chrome does **not** run content scripts on `file://` pages unless you enable
+"Allow access to file URLs" for the extension. So **don't test by double-clicking
+`test.html`** — it will appear to do nothing.
+
+Test against any image-rich HTTPS page instead, e.g. Unsplash or Wikipedia, or
+serve the local page over HTTP:
+
+```sh
+python3 -m http.server 8123
+# then open http://localhost:8123/test.html in Chrome
+```
+
+**After editing any extension file, reload the extension**: open
+`chrome://extensions` and click the refresh icon on the Image Saver card, then
+reload the page you're testing. Otherwise Chrome keeps the old code cached and
+your fixes won't show up.
+
+Steps: open your test page, click the Image Saver icon (badge shows **ON**),
+hover an element that contains an image, and click **Download**.
 
 ## Notes / limitations
 
