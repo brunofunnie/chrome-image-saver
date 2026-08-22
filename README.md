@@ -14,9 +14,11 @@ and download the image inside it in one click.
 3. Click **Download** — the image saves straight to your default Downloads
    folder, named from its URL.
 
-> The toolbar click also (re)injects the content script on demand, so the
-> extension works on pages that were already open — you don't need to reload
-> the page after enabling/reloading the extension.
+> The toolbar click injects the content script on demand (no manifest
+> auto-inject), so the extension works on pages that were already open — you
+> don't need to reload the page. When you toggle, a small **green/red toast**
+> ("Image Saver ON/OFF") appears at the top of the page as instant confirmation
+> the script is live in that tab.
 
 ## Loading the extension (unpacked)
 
@@ -63,8 +65,10 @@ python3 -m http.server 8123
 reload the page you're testing. Otherwise Chrome keeps the old code cached and
 your fixes won't show up.
 
-Steps: open your test page, click the Image Saver icon (badge shows **ON**),
-hover an element that contains an image, and click **Download**.
+Steps: open your test page, click the Image Saver icon — a green **"Image Saver
+ON"** toast appears at the top of the page — then hover an element that contains
+an image, and click **Download**. (No toast on a restricted page like
+`chrome://` — the extension can't run there.)
 
 ## Debugging
 
@@ -73,10 +77,11 @@ fine-grained hover details only when verbose debug is enabled:
 
 1. Open the page where images aren't popuping.
 2. Open DevTools (F12) → **Console**.
-3. Type `window.__imageSaverDebug = true` and press Enter.
-4. Now hover the image. Look for `[ImageSaver]` lines:
-   - `hover mode ON` → active state reached the page. If you never see this on
-     click, the toggle isn't reaching the content script.
+3. Type `window.__imageSaverDebug = true` and press Enter. (If the page source
+   reloads, e.g. a SPA nav, re-set it.)
+4. Toggle the extension ON — you should see `[ImageSaver] hover mode ON` in the
+   **page console** (this one, not the service worker console).
+5. Now hover the image. Look for `[ImageSaver]` lines:
    - `mouseover on IMG <img...>` → the hover event fires.
    - `resolveImage: <img> result for ... -> <url>` → a usable image was found.
    - `show popover: url = ...` → the popover was told to appear.
@@ -85,8 +90,8 @@ fine-grained hover details only when verbose debug is enabled:
    - If you see `no image found for ...` then no image URL was resolved.
 
 The service worker also logs via `chrome://extensions` → Service Workers (a
-`service-worker` `console.log`). Paste the `[ImageSaver]` lines here if it's
-still not working.
+`service-worker` console). Paste the `[ImageSaver]` lines here if it's still not
+working.
 
 ## Notes / limitations
 
