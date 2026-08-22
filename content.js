@@ -196,7 +196,6 @@
 
   function scheduleHide(ms) {
     clearTimeout(hideTimer);
-    lastHide = Date.now();
     hideTimer = setTimeout(hide, ms);
   }
 
