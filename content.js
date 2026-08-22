@@ -64,6 +64,11 @@
         white-space: nowrap; margin-bottom: 6px; }
       #__imageSaverHost__ .is-err { font-size: 11px; color: #f87171;
         text-align: center; margin-bottom: 4px; }
+      #__imageSaverHost__ .is-toast { position: fixed; top: 12px; left: 50%;
+        transform: translateX(-50%); z-index: 2147483647; color: #fff;
+        padding: 8px 16px; border-radius: 8px;
+        font: 600 13px system-ui, sans-serif;
+        box-shadow: 0 4px 12px rgba(0,0,0,.35); pointer-events: none; }
     `;
     document.documentElement.appendChild(style);
     document.documentElement.appendChild(el);
@@ -73,9 +78,23 @@
         <div class="is-name"></div>
         <div class="is-err" style="display:none">Couldn't download this image</div>
         <button class="is-btn">Download</button>
-      </div>`;
+      </div>
+      <div class="is-toast" style="display:none"></div>`;
     return el;
   })();
+
+  // Small on-page toast so toggling gives instant visual feedback (no console
+  // needed). Self-dismisses.
+  let toastTimer = null;
+  function showToast(text, color) {
+    const t = host.querySelector(".is-toast");
+    if (!t) return;
+    t.textContent = text;
+    t.style.background = color || "#16a34a";
+    t.style.display = "block";
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => { t.style.display = "none"; }, 1600);
+  }
 
   const pop = host.querySelector(".is-pop");
   const imgEl = host.querySelector(".is-img");
@@ -113,6 +132,7 @@
     if (active === on) return;
     active = on;
     line("hover mode " + (on ? "ON" : "OFF"));
+    showToast(on ? "Image Saver ON — hover an image" : "Image Saver OFF", on ? "#16a34a" : "#dc2626");
     if (!on) hide();
   }
 
