@@ -126,11 +126,14 @@ const isVisible = () => pop && pop.style.display === "block";
     "thumbnail src matches the image under the cursor");
   assert(nameEl.textContent === "photo1.jpg", "filename derived: photo1.jpg");
   assert(!btn.disabled, "Download button enabled");
-  const pos1 = pop.style.left;
-  // Move within the image -> position follows the cursor
+  const pos1 = pop.style.left + "/" + pop.style.top;
+  // Move within the image: popover stays anchored (does NOT chase the cursor,
+  // otherwise the Download button would be impossible to click).
   move(30, 30);
   await sleep(10);
-  assert(isVisible() && pop.style.left !== "", "popover stays visible and repositions on cursor move");
+  assert(isVisible(), "popover stays visible while cursor stays over the same image");
+  assert(pop.style.left + "/" + pop.style.top === pos1,
+    "popover position is stable (anchored) while over the same image");
 
   // --- Cursor BELOW the image, still inside the same card ---------------
   pointTarget = label;

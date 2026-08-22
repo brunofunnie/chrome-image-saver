@@ -266,8 +266,9 @@
 
   function showPopover(hit, x, y) {
     if (currentUrl === hit.url && pop.style.display === "block") {
-      // Same image: just follow the cursor.
-      placePopoverAt(x, y);
+      // Same image already showing: keep the anchor exactly where it first
+      // appeared. If the popover chased the cursor, it would keep running away
+      // from the pointer and the Download button would be impossible to click.
       return;
     }
     line("show popover: url =", hit.url);
@@ -277,6 +278,7 @@
     btn.disabled = false;
     currentUrl = hit.url;
     pop.style.display = "block";
+    // Anchor once, right next to the cursor at the moment the popover appears.
     placePopoverAt(x, y);
   }
 
