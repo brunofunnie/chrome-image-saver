@@ -83,5 +83,5 @@ Manifest V3 extension composed of:
 
 Manual verification against a page with: plain `<img>`, CSS background images,
 `<picture>/srcset`, and a cross-origin hotlinked image. Confirm: toggle on/off
-via icon, single prominent image per element, download lands in Downloads, and
-offs. Also verify popovers don't appear when not active.
+via icon, single prominent image per element, download lands in Downloads. Also verify popovers don't appear when not
+active.
