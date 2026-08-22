@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Image Saver — Test Page</title>
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 24px; color: #111; }
+    h1 { font-size: 20px; }
+    p { max-width: 60ch; }
+    .card { display: flex; gap: 16px; align-items: center;
+      border: 1px solid #ddd; border-radius: 10px; padding: 16px; margin-bottom: 16px; }
+    .card img { width: 72px; height: 72px; object-fit: cover; border-radius: 6px; }
+    .card h3 { margin: 0 0 4px; font-size: 15px; }
+    .card p { margin: 0; font-size: 13px; color: #555; }
+    .bg-image { width: 200px; height: 120px; margin-bottom: 16px;
+      border-radius: 8px;
+      background-image: url("https://images.unsplash.com/photo-1542838132-92c53300491e?w=400");
+      background-size: cover; background-position: center; }
+    .srcset img { width: 200px; height: 120px; object-fit: cover; border-radius: 8px; }
+    .tracker { width: 1px; height: 1px; }
+  </style>
+</head>
+<body>
+  <h1>Image Saver — Test Page</h1>
+  <p>
+    Click the Image Saver toolbar icon to turn ON hover mode (badge shows "ON"),
+    then hover over any of the boxes below. A thumbnail with a download button
+    should appear. Hover away to dismiss.
+  </p>
+
+  <h2>Simple &lt;img&gt;</h2>
+  <div class="card">
+    <img src="https://images.unsplash.com/photo-1441974231531-c6227db76b6e?w=200" alt="forest">
+    <div>
+      <h3>Plain img element</h3>
+      <p>A single &lt;img&gt;. Hovering the text or the image should pop its thumbnail.</p>
+    </div>
+  </div>
+
+  <h2>CSS background image</h2>
+  <div class="tracker"></div>
+  <div class="bg-image"></div>
+  <p class="bg-image">← hover this box (it has <code>background-image</code>).</p>
+
+  <h2>&lt;picture&gt; / srcset</h2>
+  <div class="srcset">
+    <img
+      srcset="https://images.unsplash.com/photo-1501594907352-04cda38ebc29?w=300 300w, https://images.unsplash.com/photo-1501594907352-04cda38ebc29?w=800 800w"
+      src="https://images.unsplash.com/photo-1501594907352-04cda38ebc29?w=800"
+      alt="mountains">
+  </div>
+  <p class="card" style="display:block"><span>🌈</span> Correct: pick a clean page, toggle ON by clicking the icon, hover each box, click Download, and check your Downloads folder.</p>
+</body>
+</html>
