@@ -29,6 +29,7 @@ async function setActive(tabId, active) {
   await chrome.action.setBadgeBackgroundColor({ tabId, color: "#16a34a" });
 
   await sendToTab(tabId, { type: "set-active", active });
+  console.log("[ImageSaver:bg] toggle tab", tabId, active ? "ON" : "OFF");
 }
 
 chrome.action.onClicked.addListener(async (tab) => {
@@ -42,6 +43,7 @@ chrome.action.onClicked.addListener(async (tab) => {
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg && msg.type === "get-state") {
     const tabId = sender.tab && sender.tab.id;
+    console.log("[ImageSaver:bg] get-state for tab", tabId);
     chrome.storage.session.get(STORAGE_KEY).then((store) => {
       const map = (store && store[STORAGE_KEY]) || {};
       sendResponse({ active: !!map[tabId] });
@@ -51,6 +53,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
   if (msg && msg.type === "download") {
     const { url, filename } = msg;
+    console.log("[ImageSaver:bg] download requested", { url, filename, tab: sender.tab && sender.tab.id });
     if (!url || /^(about|javascript):/i.test(url)) {
       sendResponse({ ok: false, error: "invalid-url" });
       return false;

@@ -61,6 +61,28 @@ your fixes won't show up.
 Steps: open your test page, click the Image Saver icon (badge shows **ON**),
 hover an element that contains an image, and click **Download**.
 
+## Debugging
+
+The content script logs lifecycle + state events with `[ImageSaver]` always, and
+fine-grained hover details only when verbose debug is enabled:
+
+1. Open the page where images aren't popuping.
+2. Open DevTools (F12) → **Console**.
+3. Type `window.__imageSaverDebug = true` and press Enter.
+4. Now hover the image. Look for `[ImageSaver]` lines:
+   - `hover mode ON` → active state reached the page. If you never see this on
+     click, the toggle isn't reaching the content script.
+   - `mouseover on IMG <img...>` → the hover event fires.
+   - `resolveImage: <img> result for ... -> <url>` → a usable image was found.
+   - `show popover: url = ...` → the popover was told to appear.
+   - If you see `mouseover ignored (inactive)` then `active` is false in the
+     page (toggle isn't syncing).
+   - If you see `no image found for ...` then no image URL was resolved.
+
+The service worker also logs via `chrome://extensions` → Service Workers (a
+`service-worker` `console.log`). Paste the `[ImageSaver]` lines here if it's
+still not working.
+
 ## Notes / limitations
 
 - One prominent image per element (its own `<img>` or the largest descendant).

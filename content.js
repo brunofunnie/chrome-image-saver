@@ -11,6 +11,14 @@
 
   let active = false;
 
+  // ---------- Debug helper ----------
+  // Verbose logs are gated behind window.__imageSaverDebug=true (set it in
+  // the page console). Lifecycle/state events are always logged lightly.
+  const DBG = () => { try { return !!window.__imageSaverDebug; } catch (e) { return false; } };
+  function log(...args) { try { if (DBG()) console.log("[ImageSaver]", ...args); } catch (e) {} }
+  function line(...args) { try { console.log("[ImageSaver]", ...args); } catch (e) {} }
+  line("content.js injected, url =", location.href);
+
   // ---------- Persistent, minimal DOM injection once ----------
   // Create a single fixed-position overlay we reuse across hovers.
   const host = document.createElement("div");
@@ -66,6 +74,7 @@
 
   // ---------- Active-mode messaging ----------
   chrome.runtime.onMessage.addListener((msg) => {
+    log("runtime.onMessage", msg);
     if (msg && msg.type === "set-active") {
       setActive(!!msg.active);
     }
@@ -74,11 +83,13 @@
   // The content script doesn't know its own tab id, so it asks the background
   // for the persisted state on load.
   chrome.runtime.sendMessage({ type: "get-state" }, (resp) => {
+    log("get-state response", resp);
     setActive(resp && resp.active ? true : false);
   });
 
   function setActive(on) {
     active = on;
+    line("hover mode " + (on ? "ON" : "OFF"));
     if (!on) hide();
   }
 
@@ -107,16 +118,22 @@
     if (element.tagName === "IMG" && !isInsideHost(element)) best = element;
 
     const imgs = element.querySelectorAll ? element.querySelectorAll("img") : [];
+    log("findBestImg: element", element.tagName, "has", imgs.length, "img descendant(s)");
     for (const img of imgs) {
       if (img === element || isInsideHost(img)) continue;
       const area = imgNaturalSize(img);
+      log("  candidate img src =", img.src, "current", img.currentSrc,
+        "natural", img.naturalWidth + "x" + img.naturalHeight, "area", area);
       // Trackers are tiny or zero; skip obvious 1x1 pixel rats.
       if (area > 0 && area < 4) continue;
       const cur = img.currentSrc || img.src;
       if (!isUsable(cur)) continue;
       if (!best || area > imgNaturalSize(best)) best = img;
     }
-    if (!best) return null;
+    if (!best) {
+      log("findBestImg: no usable <img> resolved");
+      return null;
+    }
 
     const src = best.currentSrc || best.src;
     return isUsable(src) ? src : null;
@@ -126,6 +143,7 @@
   function findBackgroundImage(el) {
     const cs = getComputedStyle(el);
     const urls = extractUrls(cs.backgroundImage);
+    log("findBackgroundImage:", el.tagName, "bg =", cs.backgroundImage, "->", urls);
     if (urls.length) return urls[urls.length - 1]; // top layer painted last
     for (const p of ["::before", "::after"]) {
       const u = extractUrls(getComputedStyle(el, p).backgroundImage);
@@ -148,8 +166,13 @@
   // Resolve the element's single prominent image (see spec priority order).
   function resolveImage(el) {
     const byImg = findBestImg(el);
-    if (byImg) return byImg;
-    return findBackgroundImage(el);
+    if (byImg) {
+      log("resolveImage: <img> result for", el.tagName, el, "->", byImg);
+      return byImg;
+    }
+    const bg = findBackgroundImage(el);
+    if (bg) log("resolveImage: background result for", el.tagName, el, "->", bg);
+    return bg;
   }
 
   // ---------- Popover ----------
@@ -178,6 +201,7 @@
   }
 
   function show(target, url, name) {
+    line("show popover: url =", url, "name =", name);
     imgEl.src = url;
     nameEl.textContent = name;
     errEl.style.display = "none";
@@ -188,6 +212,7 @@
   }
 
   function hide() {
+    log("hide popover");
     pop.style.display = "none";
     imgEl.removeAttribute("src");
     currentUrl = null;
@@ -214,12 +239,14 @@
 
   // ---------- Download ----------
   btn.addEventListener("click", () => {
+    log("Download clicked, currentUrl =", currentUrl);
     if (!currentUrl) return;
     const filename = filenameFromUrl(currentUrl);
     btn.disabled = true;
     chrome.runtime.sendMessage(
       { type: "download", url: currentUrl, filename },
       (resp) => {
+        log("download response", resp, "lastError", chrome.runtime.lastError && chrome.runtime.lastError.message);
         const err = chrome.runtime.lastError;
         btn.disabled = false;
         if (!resp || !resp.ok || err) {
@@ -236,11 +263,14 @@
   document.addEventListener(
     "mouseover",
     (e) => {
-      if (!active || isInsideHost(e.target)) return;
+      if (!active) { log("mouseover ignored (inactive)"); return; }
+      if (isInsideHost(e.target)) { log("mouseover on our overlay, ignored"); return; }
       const el = e.target;
-      if (!(el instanceof Element)) return;
+      if (!(el instanceof Element)) { log("mouseover on non-Element", e.target); return; }
+      log("mouseover on", el.tagName, el);
       const url = resolveImage(el);
       if (!url) {
+        log("no image found for", el.tagName, el);
         scheduleHide(150);
         return;
       }
