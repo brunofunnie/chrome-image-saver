@@ -5,57 +5,77 @@
 //  - On mouseover we resolve the element's single most prominent image and
 //    show a floating thumbnail popover with a download button.
 //  - The download is delegated to the background service worker.
+//
+// NOTE: this file may be injected twice in the same page — once automatically
+// by the manifest (content_scripts) and once on-demand from the background via
+// chrome.scripting when the toolbar icon is clicked (so it works even on pages
+// that were open before the extension was installed/reloaded). Everything is
+// therefore idempotent: a second copy reuses the existing overlay instead of
+// creating a duplicate.
 
 (() => {
   "use strict";
 
   let active = false;
 
-  // ---------- Debug helper ----------
-  // Verbose logs are gated behind window.__imageSaverDebug=true (set it in
-  // the page console). Lifecycle/state events are always logged lightly.
+  // ---------- Debug helpers ----------
+  // Lifecycle/state events are ALWAYS logged with "[ImageSaver]". Verbose
+  // per-hover detail is gated behind window.__imageSaverDebug = true (set it
+  // in the page console) to keep normal pages quiet.
   const DBG = () => { try { return !!window.__imageSaverDebug; } catch (e) { return false; } };
   function log(...args) { try { if (DBG()) console.log("[ImageSaver]", ...args); } catch (e) {} }
   function line(...args) { try { console.log("[ImageSaver]", ...args); } catch (e) {} }
+
   line("content.js injected, url =", location.href);
 
-  // ---------- Persistent, minimal DOM injection once ----------
-  // Create a single fixed-position overlay we reuse across hovers.
-  const host = document.createElement("div");
-  host.id = "__imageSaverHost__";
-  const style = document.createElement("style");
-  style.textContent = `
-    #__imageSaverHost__ { all: initial; position: fixed; z-index: 2147483647;
-      font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-      pointer-events: none; }
-    #__imageSaverHost__ .is-pop { position: absolute; pointer-events: auto;
-      background: #1f2937; color: #f9fafb; border: 1px solid #374151;
-      border-radius: 10px; box-shadow: 0 8px 24px rgba(0,0,0,.35);
-      padding: 8px; width: 168px; transform: translateY(8px); }
-    #__imageSaverHost__ .is-imgwrap { position: relative; margin-bottom: 6px; }
-    #__imageSaverHost__ .is-img { display: block; max-width: 100%; max-height: 120px;
-      height: auto; margin: 0 auto; border-radius: 6px; background: #111827; }
-    #__imageSaverHost__ .is-btn { display: flex; align-items: center;
-      justify-content: center; gap: 6px; width: 100%; padding: 7px;
-      border: 0; border-radius: 7px; cursor: pointer; font-size: 12px;
-      font-weight: 600; color: #fff; background: #16a34a; transition: background .12s; }
-    #__imageSaverHost__ .is-btn:hover { background: #15803d; }
-    #__imageSaverHost__ .is-btn:disabled { cursor: default; background: #4b5563; }
-    #__imageSaverHost__ .is-name { font-size: 11px; color: #d1d5db;
-      text-align: center; overflow: hidden; text-overflow: ellipsis;
-      white-space: nowrap; margin-bottom: 6px; }
-    #__imageSaverHost__ .is-err { font-size: 11px; color: #f87171;
-      text-align: center; margin-bottom: 4px; }
-  `;
-  document.documentElement.appendChild(style);
-  document.documentElement.appendChild(host);
-  host.innerHTML = `
-    <div class="is-pop" style="display:none">
-      <div class="is-imgwrap"><img class="is-img" alt=""></div>
-      <div class="is-name"></div>
-      <div class="is-err" style="display:none">Couldn't download this image</div>
-      <button class="is-btn">Download</button>
-    </div>`;
+  // ---------- Isolated-world-safe element check ----------
+  // `e.target instanceof Element` can be unreliable between the page world and
+  // the extension's isolated world, so test the DOM contract instead.
+  function isElement(node) {
+    return !!node && typeof node === "object" && node.nodeType === 1 &&
+      typeof node.tagName === "string";
+  }
+
+  // ---------- Overlay (created once, reused by any extra copies) ----------
+  const host = document.getElementById("__imageSaverHost__") || (() => {
+    const el = document.createElement("div");
+    el.id = "__imageSaverHost__";
+    const style = document.createElement("style");
+    style.textContent = `
+      #__imageSaverHost__ { all: initial; position: fixed; top: 0; left: 0;
+        width: 0; height: 0; z-index: 2147483647;
+        font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+        pointer-events: none; }
+      #__imageSaverHost__ .is-pop { position: absolute; pointer-events: auto;
+        background: #1f2937; color: #f9fafb; border: 1px solid #374151;
+        border-radius: 10px; box-shadow: 0 8px 24px rgba(0,0,0,.35);
+        padding: 8px; width: 168px; transform: translateY(8px); }
+      #__imageSaverHost__ .is-imgwrap { position: relative; margin-bottom: 6px; }
+      #__imageSaverHost__ .is-img { display: block; max-width: 100%; max-height: 120px;
+        height: auto; margin: 0 auto; border-radius: 6px; background: #111827; }
+      #__imageSaverHost__ .is-btn { display: flex; align-items: center;
+        justify-content: center; gap: 6px; width: 100%; padding: 7px;
+        border: 0; border-radius: 7px; cursor: pointer; font-size: 12px;
+        font-weight: 600; color: #fff; background: #16a34a; transition: background .12s; }
+      #__imageSaverHost__ .is-btn:hover { background: #15803d; }
+      #__imageSaverHost__ .is-btn:disabled { cursor: default; background: #4b5563; }
+      #__imageSaverHost__ .is-name { font-size: 11px; color: #d1d5db;
+        text-align: center; overflow: hidden; text-overflow: ellipsis;
+        white-space: nowrap; margin-bottom: 6px; }
+      #__imageSaverHost__ .is-err { font-size: 11px; color: #f87171;
+        text-align: center; margin-bottom: 4px; }
+    `;
+    document.documentElement.appendChild(style);
+    document.documentElement.appendChild(el);
+    el.innerHTML = `
+      <div class="is-pop" style="display:none">
+        <div class="is-imgwrap"><img class="is-img" alt=""></div>
+        <div class="is-name"></div>
+        <div class="is-err" style="display:none">Couldn't download this image</div>
+        <button class="is-btn">Download</button>
+      </div>`;
+    return el;
+  })();
 
   const pop = host.querySelector(".is-pop");
   const imgEl = host.querySelector(".is-img");
@@ -65,6 +85,7 @@
 
   let currentUrl = null;
   let hideTimer = null;
+  let gotBroadcast = false; // once the background pushes set-active, trust it over the initial get-state
 
   // True when `node` is one of our own overlay elements. We must never treat
   // our own thumbnail image, button, etc. as a page image to hover.
@@ -76,25 +97,26 @@
   chrome.runtime.onMessage.addListener((msg) => {
     log("runtime.onMessage", msg);
     if (msg && msg.type === "set-active") {
+      gotBroadcast = true;
       setActive(!!msg.active);
     }
   });
 
   // The content script doesn't know its own tab id, so it asks the background
-  // for the persisted state on load.
+  // for the persisted state on load. Ignored if a broadcast has already landed.
   chrome.runtime.sendMessage({ type: "get-state" }, (resp) => {
     log("get-state response", resp);
-    setActive(resp && resp.active ? true : false);
+    if (!gotBroadcast) setActive(resp && resp.active ? true : false);
   });
 
   function setActive(on) {
+    if (active === on) return;
     active = on;
     line("hover mode " + (on ? "ON" : "OFF"));
     if (!on) hide();
   }
 
   // ---------- Image resolution ----------
-  // Small penalty: only treat genuinely usable source URLs as images.
   function isUsable(url) {
     if (!url || typeof url !== "string") return false;
     if (url.startsWith("data:")) {
@@ -180,7 +202,10 @@
   // positioned in VIEWPORT coordinates — do NOT add window.scrollX/Y.
   function placePopover(target) {
     const r = target.getBoundingClientRect();
-    if (!r || (r.width === 0 && r.height === 0)) return; // hidden/collapsed
+    if (!r || (r.width === 0 && r.height === 0)) {
+      log("placePopover: zero-size target, skip");
+      return; // hidden/collapsed
+    }
     const gap = 10;
     const w = 168;
     const estimatedH = 210;
@@ -265,8 +290,8 @@
     (e) => {
       if (!active) { log("mouseover ignored (inactive)"); return; }
       if (isInsideHost(e.target)) { log("mouseover on our overlay, ignored"); return; }
+      if (!isElement(e.target)) { log("mouseover on non-Element", e.target); return; }
       const el = e.target;
-      if (!(el instanceof Element)) { log("mouseover on non-Element", e.target); return; }
       log("mouseover on", el.tagName, el);
       const url = resolveImage(el);
       if (!url) {

@@ -32,7 +32,26 @@ async function setActive(tabId, active) {
   console.log("[ImageSaver:bg] toggle tab", tabId, active ? "ON" : "OFF");
 }
 
+// Chrome does NOT re-inject auto content scripts into already-open pages when
+// the extension is reloaded, and a page loaded before install has none at all.
+// So when the user clicks the icon, (re)inject the content script on demand
+// via chrome.scripting (allowed on the active tab thanks to activeTab). The
+// content script is idempotent — a second copy reuses the existing overlay.
+async function ensureContentScript(tabId) {
+  try {
+    await chrome.scripting.executeScript({ target: { tabId }, files: ["content.js"] });
+    console.log("[ImageSaver:bg] ensured content.js in tab", tabId);
+  } catch (e) {
+    // Restricted pages (chrome://, Web Store, ...) can't be injected; the
+    // badge will still toggle but the page can't show the popover.
+    console.warn("[ImageSaver:bg] could not inject content.js in tab", tabId, e && e.message);
+  }
+}
+
 chrome.action.onClicked.addListener(async (tab) => {
+  // Inject FIRST so the fresh copy exists in this tab before we broadcast.
+  await ensureContentScript(tab.id);
+
   const store = await chrome.storage.session.get(STORAGE_KEY) || {};
   const map = store[STORAGE_KEY] || {};
   const wasActive = !!map[tab.id];

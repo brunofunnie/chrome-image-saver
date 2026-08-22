@@ -17,6 +17,7 @@ const badge = {}; // tabId -> text
 const broadcasts = []; // {tabId,message}
 let downloadCalls = [];
 const callbacks = {}; // event -> fn
+let injectedTabs = []; // tabIds executeScript targeted
 
 function makeChrome() {
   return {
@@ -35,6 +36,13 @@ function makeChrome() {
       async sendMessage(tabId, m) {
         broadcasts.push({ tabId, message: m });
         return true;
+      },
+    },
+    scripting: {
+      async executeScript(o) {
+        const target = o.target || {};
+        injectedTabs.push(target.tabId);
+        return [];
       },
     },
     runtime: {
@@ -59,6 +67,7 @@ vm.runInContext(fs.readFileSync(path.join(__dirname, "background.js"), "utf8"), 
 
   // --- Toggle ON through the icon click ---------------------------------
   await callbacks.onClicked(tab);
+  assert(injectedTabs.includes(101), "clicking the icon injects content.js via chrome.scripting (tab 101)");
   assert(badge[101] === "ON", "icon badge shows ON after first click");
   assert(badge[1012] !== "ON", "badge NOT applied for the wrong tab");
   const sent = broadcasts.find((b) => b.tabId === 101);

@@ -14,6 +14,10 @@ and download the image inside it in one click.
 3. Click **Download** — the image saves straight to your default Downloads
    folder, named from its URL.
 
+> The toolbar click also (re)injects the content script on demand, so the
+> extension works on pages that were already open — you don't need to reload
+> the page after enabling/reloading the extension.
+
 ## Loading the extension (unpacked)
 
 1. Open Chrome and go to `chrome://extensions`.
@@ -23,7 +27,8 @@ and download the image inside it in one click.
 
 ## Files
 
-- `manifest.json` — MV3 config; permissions `activeTab`, `storage`, `downloads`.
+- `manifest.json` — MV3 config; permissions `activeTab`, `storage`, `downloads`,
+  `scripting`.
 - `content.js` — hover detection, image resolution, popover UI.
 - `background.js` — service worker: toggles mode, updates badge, downloads.
 - `generate-icons.js` — script that produced `icons/icon{16,48,128}.png`.
