@@ -5,8 +5,12 @@
 //  - As the mouse moves, we find the element under the cursor, walk UP through
 //    its ancestors (~12 levels) looking for an image (<img> at any depth, or a
 //    CSS background-image), and only when the cursor is INSIDE that image's
-//    rendered rectangle we show a floating thumbnail popover next to the mouse
-//    with a download button.
+//    rendered rectangle do we consider it "the image under the cursor".
+//  - The popover is NOT shown while the mouse is moving. It appears only after
+//    the pointer has been at rest over that image for DWELL_MS. Once shown it
+//    is anchored where it appeared and never follows the cursor. Moving onto a
+//    DIFFERENT image dismisses it and restarts the same dwell cycle there.
+//  - Pressing "d" downloads the image currently shown in the popover.
 //  - The download is delegated to the background service worker.
 //
 // NOTE: this file may be injected twice in the same page — once automatically
@@ -62,6 +66,10 @@
         font-weight: 600; color: #fff; background: #16a34a; transition: background .12s; }
       #__imageSaverHost__ .is-btn:hover { background: #15803d; }
       #__imageSaverHost__ .is-btn:disabled { cursor: default; background: #4b5563; }
+      #__imageSaverHost__ .is-kbd { display: inline-block; min-width: 14px;
+        padding: 1px 4px; border-radius: 4px; background: rgba(0,0,0,.28);
+        border: 1px solid rgba(255,255,255,.25); font-size: 10px;
+        line-height: 14px; font-weight: 700; }
       #__imageSaverHost__ .is-name { font-size: 11px; color: #d1d5db;
         text-align: center; overflow: hidden; text-overflow: ellipsis;
         white-space: nowrap; margin-bottom: 6px; }
@@ -80,7 +88,7 @@
         <div class="is-imgwrap"><img class="is-img" alt=""></div>
         <div class="is-name"></div>
         <div class="is-err" style="display:none">Couldn't download this image</div>
-        <button class="is-btn">Download</button>
+        <button class="is-btn">Download <span class="is-kbd">D</span></button>
       </div>
       <div class="is-toast" style="display:none"></div>`;
     return el;
@@ -95,6 +103,17 @@
   let currentUrl = null;
   let hideTimer = null;
   let gotBroadcast = false; // once the background pushes set-active, trust it over the initial get-state
+
+  // ---------- Dwell state ----------
+  // The popover only appears once the pointer has been at rest over the same
+  // image for DWELL_MS. `pendingHit` is the image the cursor is currently over
+  // but that hasn't earned a popover yet; pendingX/pendingY are the cursor
+  // coordinates of the last mousemove, i.e. where the pointer came to rest.
+  const DWELL_MS = 200;
+  let dwellTimer = null;
+  let pendingHit = null;
+  let pendingX = 0;
+  let pendingY = 0;
 
   // Small on-page toast so toggling gives instant visual feedback (no console
   // needed). Self-dismisses.
@@ -136,7 +155,7 @@
     active = on;
     line("hover mode " + (on ? "ON" : "OFF"));
     showToast(on ? "Image Saver ON — hover an image" : "Image Saver OFF", on ? "#16a34a" : "#dc2626");
-    if (!on) hide();
+    if (!on) { cancelDwell(); hide(); }
   }
 
   // ---------- Image resolution ----------
@@ -282,8 +301,30 @@
     placePopoverAt(x, y);
   }
 
+  // Arm (or re-arm) the dwell timer for `hit` at the current cursor position.
+  // Every mousemove pushes the deadline back, so the popover can only appear
+  // once the pointer actually stops.
+  function armDwell(hit, x, y) {
+    pendingHit = hit;
+    pendingX = x;
+    pendingY = y;
+    clearTimeout(dwellTimer);
+    dwellTimer = setTimeout(() => {
+      dwellTimer = null;
+      if (!active || !pendingHit) return;
+      showPopover(pendingHit, pendingX, pendingY);
+    }, DWELL_MS);
+  }
+
+  function cancelDwell() {
+    clearTimeout(dwellTimer);
+    dwellTimer = null;
+    pendingHit = null;
+  }
+
   function hide() {
     log("hide popover");
+    cancelDwell();
     pop.style.display = "none";
     imgEl.removeAttribute("src");
     currentUrl = null;
@@ -309,9 +350,26 @@
   }
 
   // ---------- Download ----------
-  btn.addEventListener("click", () => {
-    log("Download clicked, currentUrl =", currentUrl);
+  // Guard state lives on the host element (not in this closure) so that a
+  // second injected copy of this script shares it: both copies see the same
+  // click/keydown and would otherwise fire two downloads for one user action.
+  const DEDUPE_MS = 500;
+  function alreadyRequested(url) {
+    const last = host.__isLastDownload;
+    const now = Date.now();
+    if (last && last.url === url && now - last.at < DEDUPE_MS) return true;
+    host.__isLastDownload = { url, at: now };
+    return false;
+  }
+
+  function requestDownload() {
+    log("download requested, currentUrl =", currentUrl);
     if (!currentUrl) return;
+    if (pop.style.display !== "block") return;
+    if (alreadyRequested(currentUrl)) {
+      log("duplicate download suppressed for", currentUrl);
+      return;
+    }
     const filename = filenameFromUrl(currentUrl);
     btn.disabled = true;
     chrome.runtime.sendMessage(
@@ -327,7 +385,31 @@
         }
       }
     );
-  });
+  }
+
+  btn.addEventListener("click", requestDownload);
+
+  // ---------- "d" hotkey ----------
+  // Downloads whatever the popover is currently showing. Ignored while the user
+  // is typing, and ignored for modified keystrokes (Ctrl+D = bookmark, etc.).
+  function isTypingTarget(node) {
+    if (!isElement(node)) return false;
+    if (node.isContentEditable) return true;
+    const tag = node.tagName;
+    return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT";
+  }
+
+  document.addEventListener("keydown", (e) => {
+    if (!active) return;
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    if (e.key !== "d" && e.key !== "D") return;
+    if (isTypingTarget(e.target) || isTypingTarget(document.activeElement)) return;
+    if (pop.style.display !== "block" || !currentUrl) return;
+    e.preventDefault();
+    e.stopPropagation();
+    line("hotkey 'd' -> download", currentUrl);
+    requestDownload();
+  }, true);
 
   // ---------- Pointer wiring ----------
   // Single source of truth: the cursor position. This is far more stable than
@@ -347,20 +429,40 @@
     }
 
     const hit = findImageAtPoint(x, y, under);
-    if (hit) {
-      clearTimeout(hideTimer);
-      showPopover(hit, x, y);
-    } else {
+    if (!hit) {
+      // Not over any image: drop a pending dwell and let the popover expire.
+      cancelDwell();
       scheduleHide(350); // grace period to avoid flicker while traveling
+      return;
     }
+
+    clearTimeout(hideTimer);
+
+    // Already showing this exact image: leave it anchored where it appeared.
+    if (currentUrl === hit.url && pop.style.display === "block") {
+      cancelDwell();
+      return;
+    }
+
+    // A different image than the one on screen: dismiss the old popover right
+    // away so it stops covering the page, then restart the dwell cycle here.
+    if (pop.style.display === "block") hide();
+
+    // Still moving -> push the deadline back. The popover appears only once
+    // the pointer has been at rest over this image for DWELL_MS.
+    armDwell(hit, x, y);
   }, { passive: true });
 
   // If the pointer leaves the document entirely, hide soon.
   document.addEventListener("mouseleave", () => {
-    if (active) scheduleHide(400);
+    if (!active) return;
+    cancelDwell();
+    scheduleHide(400);
   });
 
   window.addEventListener("scroll", () => {
-    if (active) hide();
+    if (!active) return;
+    cancelDwell();
+    hide();
   }, { passive: true, capture: true });
 })();

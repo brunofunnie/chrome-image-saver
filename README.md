@@ -8,11 +8,15 @@ and download the image inside it in one click.
 1. Click the Image Saver toolbar icon to toggle **hover mode** ON (the icon gets
    an "ON" badge). Click again to turn it off. Mode is per-tab, active only in
    the tab you clicked from.
-2. While ON, hover over an element that contains an image (an `<img>`, a CSS
-   `background-image`, or a `<picture>/srcset`). A floating thumbnail with a
-   **Download** button appears.
-3. Click **Download** — the image saves straight to your default Downloads
-   folder, named from its URL.
+2. While ON, move the cursor over an element that contains an image (an `<img>`,
+   a CSS `background-image`, or a `<picture>/srcset`) and **stop moving**. After
+   a short pause (~200 ms at rest) a floating thumbnail with a **Download**
+   button appears, anchored where the cursor stopped. It does **not** follow the
+   mouse, so the button is easy to hit.
+3. Click **Download**, or just press **`D`** — the image saves straight to your
+   default Downloads folder, named from its URL.
+4. Move onto a different image and the popover disappears immediately; stop
+   again and a new one appears for that image.
 
 > The toolbar click injects the content script on demand (no manifest
 > auto-inject), so the extension works on pages that were already open — you
@@ -31,7 +35,8 @@ and download the image inside it in one click.
 
 - `manifest.json` — MV3 config; permissions `activeTab`, `storage`, `downloads`,
   `scripting`.
-- `content.js` — hover detection, image resolution, popover UI.
+- `content.js` — hover detection, dwell timing, image resolution, popover UI,
+  `D` hotkey.
 - `background.js` — service worker: toggles mode, updates badge, downloads.
 - `generate-icons.js` — script that produced `icons/icon{16,48,128}.png`.
 - `icons/` — toolbar/icons.
@@ -66,9 +71,10 @@ reload the page you're testing. Otherwise Chrome keeps the old code cached and
 your fixes won't show up.
 
 Steps: open your test page, click the Image Saver icon — a green **"Image Saver
-ON"** toast appears at the top of the page — then hover an element that contains
-an image, and click **Download**. (No toast on a restricted page like
-`chrome://` — the extension can't run there.)
+ON"** toast appears at the top of the page — then park the cursor on an element
+that contains an image, wait for the popover, and click **Download** or press
+**`D`**. (No toast on a restricted page like `chrome://` — the extension can't
+run there.)
 
 ## Debugging
 
@@ -93,9 +99,20 @@ The service worker also logs via `chrome://extensions` → Service Workers (a
 `service-worker` console). Paste the `[ImageSaver]` lines here if it's still not
 working.
 
+## Keyboard
+
+| Key | Action |
+| --- | --- |
+| `D` | Download the image currently shown in the popover |
+
+The hotkey is ignored while you're typing in an input, textarea, or
+contenteditable, and when a modifier is held (so `Ctrl/Cmd+D` still bookmarks).
+
 ## Notes / limitations
 
 - One prominent image per element (its own `<img>` or the largest descendant).
+- The popover is dwell-triggered: it appears only after the pointer has been at
+  rest over an image for ~200 ms, never while the mouse is in motion.
 - Tiny 1×1 "tracking" images are ignored.
 - Some sites block hotlinking or cross-origin images; the download may fail and
   the popover shows "Couldn't download this image".

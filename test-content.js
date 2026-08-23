@@ -14,6 +14,9 @@ function assert(cond, msg) {
   else { failed++; console.error("  ✗ FAIL: " + msg); }
 }
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+// content.js only shows the popover once the pointer has been at rest for
+// DWELL_MS (200). Tests wait a bit longer than that.
+const DWELL_WAIT = 300;
 
 // --- Build the page DOM ------------------------------------------------
 // Layout (viewport coords):
@@ -102,6 +105,13 @@ const popImg = host && host.querySelector(".is-img");
 const nameEl = host && host.querySelector(".is-name");
 const btn = host && host.querySelector(".is-btn");
 const isVisible = () => pop && pop.style.display === "block";
+function pressKey(key, target) {
+  const ev = new window.KeyboardEvent("keydown", {
+    key, bubbles: true, cancelable: true,
+  });
+  (target || document).dispatchEvent(ev);
+  return ev;
+}
 
 (async () => {
   assert(!!host, "content script injected #__imageSaverHost__ overlay");
@@ -121,7 +131,14 @@ const isVisible = () => pop && pop.style.display === "block";
   pointTarget = main;
   move(150, 60);
   await sleep(10);
-  assert(isVisible(), "cursor over the <img> shows the popover");
+  assert(!isVisible(), "popover does NOT appear immediately on hover");
+  // Keep moving over the same image: the dwell deadline keeps getting pushed
+  // back, so the popover must stay hidden while the pointer is in motion.
+  for (let i = 0; i < 4; i++) { move(150 + i, 60); await sleep(60); }
+  assert(!isVisible(), "popover stays hidden while the mouse keeps moving");
+  // Now stop.
+  await sleep(DWELL_WAIT);
+  assert(isVisible(), "popover appears after the pointer rests over the image");
   assert(popImg.getAttribute("src") === "https://example.com/photo1.jpg",
     "thumbnail src matches the image under the cursor");
   assert(nameEl.textContent === "photo1.jpg", "filename derived: photo1.jpg");
@@ -144,7 +161,7 @@ const isVisible = () => pop && pop.style.display === "block";
   // --- Small image ------------------------------------------------------
   pointTarget = small;
   move(350, 30);
-  await sleep(10);
+  await sleep(DWELL_WAIT);
   assert(isVisible(), "popover shows for the small standalone image");
   assert(popImg.getAttribute("src") === "https://example.com/thumb.gif",
     "small image src used: thumb.gif");
@@ -162,9 +179,35 @@ const isVisible = () => pop && pop.style.display === "block";
   setRect(text, rect(10, 10, 90, 90)); // text overlapping main's area
   pointTarget = text;
   move(50, 50);
-  await sleep(10);
+  await sleep(DWELL_WAIT);
   // main's rect covers (50,50); walking from #text -> #card1 finds main.
   assert(isVisible(), "deep nesting: cursor over an overlaid child still finds the covered image");
+
+  // --- Switching to a DIFFERENT image restarts the cycle ----------------
+  // The old popover must be dismissed at once (so it stops covering the page)
+  // and the new one must wait for the pointer to come to rest again.
+  const prevSrc = popImg.getAttribute("src");
+  pointTarget = small;
+  move(350, 30);
+  await sleep(10);
+  assert(!isVisible(), "moving onto another image hides the previous popover immediately");
+  await sleep(DWELL_WAIT);
+  assert(isVisible(), "popover reappears for the new image after the pointer rests");
+  assert(popImg.getAttribute("src") === "https://example.com/thumb.gif" &&
+    prevSrc !== popImg.getAttribute("src"),
+    "the reappeared popover shows the NEW image");
+  const posSmall = pop.style.left + "/" + pop.style.top;
+  move(352, 32);
+  await sleep(DWELL_WAIT);
+  assert(pop.style.left + "/" + pop.style.top === posSmall,
+    "the new popover is anchored too (stops following the mouse)");
+
+  // Back to the big image so the remaining tests use a stable target.
+  pointTarget = text;
+  move(50, 50);
+  await sleep(DWELL_WAIT);
+  assert(isVisible() && popImg.getAttribute("src") === "https://example.com/photo1.jpg",
+    "switched back to the first image");
 
   // --- Moving ONTO the popover keeps it (doesn't hide) ------------------
   // Now that popover visible, point at the popover's button.
@@ -175,10 +218,45 @@ const isVisible = () => pop && pop.style.display === "block";
 
   // --- Click Download ----------------------------------------------------
   let downloadMsg = null;
-  chrome.runtime.sendMessage = (msg, cb) => { downloadMsg = msg; cb({ ok: true }); };
+  let downloadCount = 0;
+  chrome.runtime.sendMessage = (msg, cb) => { downloadMsg = msg; downloadCount++; cb({ ok: true }); };
   btn.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
   assert(downloadMsg && downloadMsg.type === "download",
     "clicking Download sends a download message");
+  assert(downloadMsg.url === "https://example.com/photo1.jpg",
+    "download message carries the shown image url");
+
+  // A second click for the same url within the dedupe window is suppressed, so
+  // two injected copies of content.js can't double-download one user action.
+  const afterFirst = downloadCount;
+  btn.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+  assert(downloadCount === afterFirst, "repeat click for the same url is deduped");
+
+  // --- 'd' hotkey --------------------------------------------------------
+  await sleep(600); // past the 500ms dedupe window
+  downloadMsg = null;
+  const ev = pressKey("d");
+  assert(downloadMsg && downloadMsg.type === "download" &&
+    downloadMsg.url === "https://example.com/photo1.jpg",
+    "pressing 'd' downloads the image shown in the popover");
+  assert(ev.defaultPrevented, "'d' hotkey prevents the page default");
+
+  // Modified keystrokes belong to the browser/page (Ctrl+D = bookmark).
+  await sleep(600);
+  downloadMsg = null;
+  document.dispatchEvent(new window.KeyboardEvent("keydown", {
+    key: "d", ctrlKey: true, bubbles: true, cancelable: true,
+  }));
+  assert(!downloadMsg, "Ctrl+D is ignored by the hotkey");
+
+  // Typing in a field must never trigger a download.
+  downloadMsg = null;
+  const input = document.createElement("input");
+  document.body.appendChild(input);
+  input.focus();
+  pressKey("d", input);
+  assert(!downloadMsg, "'d' typed into an <input> is ignored");
+  input.remove();
 
   // --- Travel far from images -> popover hides after grace --------------
   pointTarget = nogroup;
@@ -186,12 +264,21 @@ const isVisible = () => pop && pop.style.display === "block";
   await sleep(600); // > 350ms grace
   assert(!isVisible(), "popover hidden after moving away from images");
 
+  // With nothing shown, the hotkey is a no-op.
+  await sleep(600);
+  downloadMsg = null;
+  pressKey("d");
+  assert(!downloadMsg, "'d' does nothing while no popover is shown");
+
   // --- OFF mode ---------------------------------------------------------
   pointTarget = main;
   broadcast({ type: "set-active", active: false });
   move(100, 40);
-  await sleep(10);
+  await sleep(DWELL_WAIT);
   assert(!isVisible(), "no popover while mode is OFF");
+  downloadMsg = null;
+  pressKey("d");
+  assert(!downloadMsg, "'d' does nothing while mode is OFF");
 
   // --- Dual injection idempotent ----------------------------------------
   new window.Function("chrome", "window", "document", "Element", "getComputedStyle",
