@@ -49,15 +49,24 @@ async function sendToTab(tabId, message) {
   }
 }
 
+// Tab-specific action settings are cleared by Chrome whenever the tab
+// navigates, so this gets called again on every page load, not just on toggle.
+async function applyBadge(tabId, active) {
+  try {
+    await chrome.action.setBadgeText({ tabId, text: active ? "ON" : "" });
+    await chrome.action.setBadgeBackgroundColor({ tabId, color: "#16a34a" });
+  } catch (e) {
+    // The tab went away mid-update. Nothing to show it on.
+  }
+}
+
 async function setActive(tabId, active) {
   const map = await getMap();
   if (active) map[tabId] = true;
   else delete map[tabId];
   await putMap(map);
 
-  await chrome.action.setBadgeText({ tabId, text: active ? "ON" : "" });
-  await chrome.action.setBadgeBackgroundColor({ tabId, color: "#16a34a" });
-
+  await applyBadge(tabId, active);
   await sendToTab(tabId, { type: "set-active", active });
   console.log("[ImageSaver:bg] tab", tabId, active ? "ON" : "OFF");
 }
@@ -116,16 +125,26 @@ chrome.action.onClicked.addListener(async (tab) => {
 
 // ------------------------------------------------------------ tab lifecycle
 
-// A navigation (including a plain refresh) destroys the injected content
-// script, so without this the tab would keep its ON badge over a page where
-// nothing is listening — and the next click would toggle it OFF rather than
-// bringing it back.
+// A navigation (including a plain refresh) throws away two things: the injected
+// content script, and the tab's action settings — Chrome resets tab-specific
+// badge text and colour whenever a tab navigates. Both have to be put back, or
+// the tab ends up with hover mode running behind a blank badge that reads as
+// OFF (or, if only the badge were restored, an ON badge over a dead page).
 chrome.tabs.onUpdated.addListener(async (tabId, changeInfo) => {
-  if (changeInfo.status !== "complete") return;
+  if (changeInfo.status !== "loading" && changeInfo.status !== "complete") return;
   if (!(await isActive(tabId))) return;
 
+  // Put the badge back at the first sign of the new page rather than waiting
+  // for it to finish loading, so it doesn't visibly blink off and on again.
+  if (changeInfo.status === "loading") {
+    await applyBadge(tabId, true);
+    return;
+  }
+
   if (await ensureContentScript(tabId)) {
-    await sendToTab(tabId, { type: "set-active", active: true });
+    // Re-applies the badge and re-notifies the fresh content script. The stored
+    // state is already true; this is about the state Chrome just discarded.
+    await setActive(tabId, true);
     console.log("[ImageSaver:bg] restored hover mode in tab", tabId);
   } else {
     // We can no longer reach this tab, so the mode cannot be honoured. Turn it

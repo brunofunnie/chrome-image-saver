@@ -73,11 +73,16 @@ function makeChrome() {
   };
 }
 
-// A navigation destroys the injected content script and then reports
-// status "complete" for the new document.
-async function navigate(tabId) {
+// A navigation destroys the injected content script AND resets the tab's
+// action settings -- Chrome clears tab-specific badge text and colour on
+// navigation -- and then reports status "complete" for the new document.
+async function navigate(tabId, stopAfterLoading) {
   liveScripts.delete(tabId);
-  if (callbacks.onUpdated) await callbacks.onUpdated(tabId, { status: "complete" }, { id: tabId });
+  delete badge[tabId];
+  if (!callbacks.onUpdated) return;
+  await callbacks.onUpdated(tabId, { status: "loading" }, { id: tabId });
+  if (stopAfterLoading) return;
+  await callbacks.onUpdated(tabId, { status: "complete" }, { id: tabId });
 }
 
 const chrome = makeChrome();
@@ -149,7 +154,10 @@ vm.runInContext(fs.readFileSync(path.join(__dirname, "background.js"), "utf8"), 
   injectedTabs = [];
   await navigate(t);
   assert(injectedTabs.includes(t), "content.js is re-injected after a refresh");
-  assert(badge[t] === "ON", "tab stays ON across a refresh");
+  // Chrome wipes the tab's badge on navigation, so it isn't enough to restore
+  // the content script -- the badge has to be put back or the toolbar claims
+  // OFF while hover mode is actually running.
+  assert(badge[t] === "ON", "badge is restored after a refresh");
   assert(sessionMap.imageSaverActive[t] === true, "per-tab state survives the refresh");
 
   // --- One click after a refresh turns it OFF, not ON -------------------
@@ -174,6 +182,14 @@ vm.runInContext(fs.readFileSync(path.join(__dirname, "background.js"), "utf8"), 
   injectedTabs = [];
   await navigate(t3);
   assert(!injectedTabs.includes(t3), "navigating an OFF tab does not inject anything");
+
+  // --- The badge doesn't blink off while the page loads ------------------
+  const t7 = 209;
+  await callbacks.onClicked({ id: t7 });
+  injectedTabs = [];
+  await navigate(t7, true); // stop at status "loading"
+  assert(badge[t7] === "ON", "badge is back as soon as the new page starts loading");
+  assert(!injectedTabs.includes(t7), "nothing is injected until the page is complete");
 
   // --- Closing a tab clears its state -----------------------------------
   // Otherwise the entry outlives the tab and a later tab reusing the id

@@ -45,9 +45,11 @@ another. The state is held in `chrome.storage.session`, so it survives the
 service worker being shut down and restarted, and is dropped when the browser
 closes.
 
-An injected content script does **not** survive a navigation, so the background
-re-injects it when a tab that is ON finishes loading. That means a **refresh
-keeps working** — the badge and the actual behaviour stay in step.
+A navigation throws away two things: the injected content script, and the tab's
+badge (Chrome resets tab-specific action settings on every navigation). The
+background restores both — the badge as soon as the new page starts loading, so
+it doesn't blink, and the content script once the page is complete. That means a
+**refresh keeps working**, and the badge and the actual behaviour stay in step.
 
 The one case where the mode turns itself off is a navigation to a **different
 origin**: `activeTab` access is revoked at that point, so the extension can no
