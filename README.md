@@ -38,8 +38,11 @@ and download the image inside it in one click.
 - `content.js` — hover detection, dwell timing, image resolution, popover UI,
   `D` hotkey.
 - `background.js` — service worker: toggles mode, updates badge, downloads.
-- `generate-icons.js` — script that produced `icons/icon{16,48,128}.png`.
-- `icons/` — toolbar/icons.
+- `generate-icons.js` — squares and downscales `icons/image-saver.png` into
+  `icons/icon{16,48,128}.png`. Zero dependencies: the PNG decoder, the box-filter
+  resampler and the PNG encoder are all in the file, built on Node's `zlib`.
+- `icons/` — `image-saver.png` is the source artwork; the `icon*.png` files are
+  generated from it and are what `manifest.json` ships.
 - `test.html` — a local page to try the extension against.
 - `test-content.js`, `test-background.js` — jsdom tests for the hover logic and
   the service worker. Run with `npm install` then `npm test`.
@@ -49,7 +52,7 @@ and download the image inside it in one click.
 ```sh
 npm install     # installs jsdom (dev-only)
 npm test        # runs the content-script + background test suites
-npm run icons   # regenerates icons/ PNGs
+npm run icons   # regenerates icons/icon{16,48,128}.png from icons/image-saver.png
 
 ## Manual test
 
