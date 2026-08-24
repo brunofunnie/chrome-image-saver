@@ -26,7 +26,8 @@
    button appears, anchored where the cursor stopped. It does **not** follow the
    mouse, so the button is easy to hit.
 3. Click **Download**, or just press **`D`** — the image saves straight to your
-   default Downloads folder, named from its URL.
+   default Downloads folder, named from its URL. Press **`C`** (or click
+   **Copy**) to put the image on the clipboard instead.
 4. Move onto a different image and the popover disappears immediately; stop
    again and a new one appears for that image.
 
@@ -121,16 +122,35 @@ working.
 | Key | Action |
 | --- | --- |
 | `D` | Download the image currently shown in the popover |
+| `C` | Copy that image to the clipboard |
 
-The hotkey is ignored while you're typing in an input, textarea, or
-contenteditable, and when a modifier is held (so `Ctrl/Cmd+D` still bookmarks).
+Both hotkeys stand down whenever focus is in an editable field — `<input>`,
+`<textarea>`, `<select>`, anything `contenteditable`, and ARIA widgets with
+`role="textbox"`/`searchbox`/`combobox`/`spinbutton`, including fields inside
+open shadow roots. They also ignore modified keystrokes, so `Ctrl/Cmd+D` still
+bookmarks and `Ctrl/Cmd+C` still copies the page selection.
+
+### What `C` actually copies
+
+The extension holds **no host permissions**, so it can only read an image's
+bytes when the page's own origin is allowed to: same-origin images, or
+cross-origin ones whose host sends CORS headers. When the bytes are readable the
+real bitmap goes on the clipboard (re-encoded to PNG, which is the only image
+type Chrome's clipboard accepts). When they aren't, it copies the image **URL**
+as text instead — the popover says which of the two happened rather than failing
+silently.
+
+Copying the bitmap in every case would require requesting access to all
+websites, which is a trade this extension deliberately doesn't make.
 
 ## Privacy
 
-Image Saver makes no network requests, has no analytics or remote code, and
-stores nothing beyond a per-tab on/off flag in session storage. It requests no
-host permissions — only `activeTab`, granted for the one tab whose icon you
-click. See [PRIVACY.md](PRIVACY.md).
+Image Saver has no analytics, no telemetry and no remote code, and stores
+nothing beyond a per-tab on/off flag in session storage. It requests no host
+permissions — only `activeTab`, granted for the one tab whose icon you click.
+
+The only address it ever contacts is the image you asked it to save or copy, and
+only at the moment you ask. See [PRIVACY.md](PRIVACY.md).
 
 ## Notes / limitations
 

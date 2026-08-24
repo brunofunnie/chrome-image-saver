@@ -10,7 +10,9 @@
 //    the pointer has been at rest over that image for DWELL_MS. Once shown it
 //    is anchored where it appeared and never follows the cursor. Moving onto a
 //    DIFFERENT image dismisses it and restarts the same dwell cycle there.
-//  - Pressing "d" downloads the image currently shown in the popover.
+//  - Pressing "d" downloads the image currently shown in the popover, and "c"
+//    copies it to the clipboard. Both hotkeys stand down whenever focus is in
+//    an editable field, so they never eat a keystroke meant for a text box.
 //  - The download is delegated to the background service worker.
 //
 // NOTE: this file may be injected twice in the same page — once automatically
@@ -44,10 +46,25 @@
   }
 
   // ---------- Overlay (created once, reused by any extra copies) ----------
+  // The overlay markup changes between versions of this script, and the DOM
+  // survives an extension reload: a page can still be holding an overlay built
+  // by an OLDER copy. Reusing it would leave the new code querying for elements
+  // that aren't in it. Stamp a version and rebuild when it doesn't match.
+  const OVERLAY_VERSION = "2";
+  const staleHost = document.getElementById("__imageSaverHost__");
+  if (staleHost && staleHost.dataset.isOverlay !== OVERLAY_VERSION) {
+    line("replacing an overlay built by an older version");
+    staleHost.remove();
+    const staleStyle = document.getElementById("__imageSaverStyle__");
+    if (staleStyle) staleStyle.remove();
+  }
+
   const host = document.getElementById("__imageSaverHost__") || (() => {
     const el = document.createElement("div");
     el.id = "__imageSaverHost__";
+    el.dataset.isOverlay = OVERLAY_VERSION;
     const style = document.createElement("style");
+    style.id = "__imageSaverStyle__";
     style.textContent = `
       #__imageSaverHost__ { all: initial; position: fixed; top: 0; left: 0;
         width: 0; height: 0; z-index: 2147483647;
@@ -56,16 +73,19 @@
       #__imageSaverHost__ .is-pop { position: absolute; pointer-events: auto;
         background: #1f2937; color: #f9fafb; border: 1px solid #374151;
         border-radius: 10px; box-shadow: 0 8px 24px rgba(0,0,0,.35);
-        padding: 8px; width: 168px; }
+        padding: 8px; width: 184px; }
       #__imageSaverHost__ .is-imgwrap { position: relative; margin-bottom: 6px; }
       #__imageSaverHost__ .is-img { display: block; max-width: 100%; max-height: 120px;
         height: auto; margin: 0 auto; border-radius: 6px; background: #111827; }
+      #__imageSaverHost__ .is-actions { display: flex; gap: 6px; }
       #__imageSaverHost__ .is-btn { display: flex; align-items: center;
-        justify-content: center; gap: 6px; width: 100%; padding: 7px;
+        justify-content: center; gap: 5px; flex: 1 1 0; min-width: 0; padding: 7px 6px;
         border: 0; border-radius: 7px; cursor: pointer; font-size: 12px;
         font-weight: 600; color: #fff; background: #16a34a; transition: background .12s; }
       #__imageSaverHost__ .is-btn:hover { background: #15803d; }
       #__imageSaverHost__ .is-btn:disabled { cursor: default; background: #4b5563; }
+      #__imageSaverHost__ .is-copy { background: #374151; flex: 0 1 auto; }
+      #__imageSaverHost__ .is-copy:hover { background: #4b5563; }
       #__imageSaverHost__ .is-kbd { display: inline-block; min-width: 14px;
         padding: 1px 4px; border-radius: 4px; background: rgba(0,0,0,.28);
         border: 1px solid rgba(255,255,255,.25); font-size: 10px;
@@ -73,8 +93,10 @@
       #__imageSaverHost__ .is-name { font-size: 11px; color: #d1d5db;
         text-align: center; overflow: hidden; text-overflow: ellipsis;
         white-space: nowrap; margin-bottom: 6px; }
-      #__imageSaverHost__ .is-err { font-size: 11px; color: #f87171;
+      #__imageSaverHost__ .is-status { font-size: 11px; color: #9ca3af;
         text-align: center; margin-bottom: 4px; }
+      #__imageSaverHost__ .is-status-ok { color: #4ade80; }
+      #__imageSaverHost__ .is-status-err { color: #f87171; }
       #__imageSaverHost__ .is-toast { position: fixed; top: 12px; left: 50%;
         transform: translateX(-50%); z-index: 2147483647; color: #fff;
         padding: 8px 16px; border-radius: 8px;
@@ -87,8 +109,11 @@
       <div class="is-pop" style="display:none">
         <div class="is-imgwrap"><img class="is-img" alt=""></div>
         <div class="is-name"></div>
-        <div class="is-err" style="display:none">Couldn't download this image</div>
-        <button class="is-btn">Download <span class="is-kbd">D</span></button>
+        <div class="is-status" style="display:none"></div>
+        <div class="is-actions">
+          <button class="is-btn is-download">Download <span class="is-kbd">D</span></button>
+          <button class="is-btn is-copy">Copy <span class="is-kbd">C</span></button>
+        </div>
       </div>
       <div class="is-toast" style="display:none"></div>`;
     return el;
@@ -97,8 +122,9 @@
   const pop = host.querySelector(".is-pop");
   const imgEl = host.querySelector(".is-img");
   const nameEl = host.querySelector(".is-name");
-  const errEl = host.querySelector(".is-err");
-  const btn = host.querySelector(".is-btn");
+  const statusEl = host.querySelector(".is-status");
+  const btn = host.querySelector(".is-download");
+  const copyBtn = host.querySelector(".is-copy");
 
   let currentUrl = null;
   let hideTimer = null;
@@ -269,7 +295,7 @@
   // The overlay is `position: fixed`, so we use VIEWPORT coordinates only.
   function placePopoverAt(x, y) {
     const gap = 8;
-    const pw = 168 + 16; // content width + padding
+    const pw = 184 + 16; // content width + padding
     const ph = 188;      // estimated height
     const vw = window.innerWidth;
     const vh = window.innerHeight;
@@ -283,6 +309,22 @@
     pop.style.top = top + "px";
   }
 
+  // One status line under the thumbnail, used for both failures and the
+  // short-lived "copied" confirmations. Passing no text clears it.
+  let statusTimer = null;
+  function setStatus(text, kind, holdMs) {
+    clearTimeout(statusTimer);
+    if (!text) {
+      statusEl.style.display = "none";
+      statusEl.textContent = "";
+      return;
+    }
+    statusEl.textContent = text;
+    statusEl.className = "is-status" + (kind ? " is-status-" + kind : "");
+    statusEl.style.display = "block";
+    if (holdMs) statusTimer = setTimeout(() => setStatus(null), holdMs);
+  }
+
   function showPopover(hit, x, y) {
     if (currentUrl === hit.url && pop.style.display === "block") {
       // Same image already showing: keep the anchor exactly where it first
@@ -293,8 +335,9 @@
     line("show popover: url =", hit.url);
     imgEl.src = hit.url;
     nameEl.textContent = filenameFromUrl(hit.url);
-    errEl.style.display = "none";
+    setStatus(null);
     btn.disabled = false;
+    copyBtn.disabled = false;
     currentUrl = hit.url;
     pop.style.display = "block";
     // Anchor once, right next to the cursor at the moment the popover appears.
@@ -329,7 +372,8 @@
     imgEl.removeAttribute("src");
     currentUrl = null;
     btn.disabled = false;
-    errEl.style.display = "none";
+    copyBtn.disabled = false;
+    setStatus(null);
   }
 
   function scheduleHide(ms) {
@@ -352,13 +396,16 @@
   // ---------- Download ----------
   // Guard state lives on the host element (not in this closure) so that a
   // second injected copy of this script shares it: both copies see the same
-  // click/keydown and would otherwise fire two downloads for one user action.
+  // click/keydown and would otherwise run the action twice for one user
+  // gesture. Keyed by action so a copy doesn't suppress a following download.
   const DEDUPE_MS = 500;
-  function alreadyRequested(url) {
-    const last = host.__isLastDownload;
+  function alreadyRequested(action, url) {
+    const last = host.__isLastAction;
     const now = Date.now();
-    if (last && last.url === url && now - last.at < DEDUPE_MS) return true;
-    host.__isLastDownload = { url, at: now };
+    if (last && last.action === action && last.url === url && now - last.at < DEDUPE_MS) {
+      return true;
+    }
+    host.__isLastAction = { action, url, at: now };
     return false;
   }
 
@@ -366,7 +413,7 @@
     log("download requested, currentUrl =", currentUrl);
     if (!currentUrl) return;
     if (pop.style.display !== "block") return;
-    if (alreadyRequested(currentUrl)) {
+    if (alreadyRequested("download", currentUrl)) {
       log("duplicate download suppressed for", currentUrl);
       return;
     }
@@ -379,9 +426,9 @@
         const err = chrome.runtime.lastError;
         btn.disabled = false;
         if (!resp || !resp.ok || err) {
-          errEl.style.display = "block";
+          setStatus("Couldn't download this image", "err");
         } else {
-          errEl.style.display = "none";
+          setStatus("Saved", "ok", 1600);
         }
       }
     );
@@ -389,26 +436,129 @@
 
   btn.addEventListener("click", requestDownload);
 
-  // ---------- "d" hotkey ----------
-  // Downloads whatever the popover is currently showing. Ignored while the user
-  // is typing, and ignored for modified keystrokes (Ctrl+D = bookmark, etc.).
+  // ---------- Copy ----------
+  // Putting the actual image on the clipboard needs the image BYTES. We can only
+  // read those when the page's own origin is allowed to: same-origin images, or
+  // cross-origin ones whose host sends CORS headers. The extension holds no host
+  // permissions by design, so there is no privileged fetch to fall back on —
+  // when the bytes are unreadable we copy the image URL as text instead and say
+  // which one happened, rather than failing silently.
+  //
+  // Chrome's clipboard only accepts image/png, so anything else is re-encoded
+  // through a canvas. The canvas is fed from the fetched blob, not from the
+  // page's <img>, so it is never tainted.
+  async function toPngBlob(blob) {
+    if (blob.type === "image/png") return blob;
+    const bitmap = await createImageBitmap(blob);
+    try {
+      const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
+      canvas.getContext("2d").drawImage(bitmap, 0, 0);
+      return await canvas.convertToBlob({ type: "image/png" });
+    } finally {
+      bitmap.close();
+    }
+  }
+
+  async function imageAsPng(url) {
+    const resp = await fetch(url);
+    if (!resp.ok) throw new Error("http " + resp.status);
+    return toPngBlob(await resp.blob());
+  }
+
+  async function requestCopy() {
+    log("copy requested, currentUrl =", currentUrl);
+    if (!currentUrl) return;
+    if (pop.style.display !== "block") return;
+    if (alreadyRequested("copy", currentUrl)) {
+      log("duplicate copy suppressed for", currentUrl);
+      return;
+    }
+    const url = currentUrl;
+    copyBtn.disabled = true;
+    try {
+      if (!navigator.clipboard || typeof ClipboardItem === "undefined") {
+        throw new Error("clipboard api unavailable");
+      }
+      // ClipboardItem is handed the PENDING promise on purpose: awaiting the
+      // fetch first would spend the user activation before write() is called.
+      const png = imageAsPng(url);
+      png.catch(() => {}); // the ClipboardItem owns the real rejection
+      await navigator.clipboard.write([new ClipboardItem({ "image/png": png })]);
+      setStatus("Image copied", "ok", 1600);
+    } catch (e) {
+      log("image copy failed, falling back to the url:", e && e.message);
+      try {
+        await navigator.clipboard.writeText(url);
+        setStatus("Link copied", "ok", 1600);
+      } catch (e2) {
+        log("url copy failed:", e2 && e2.message);
+        setStatus("Couldn't copy this image", "err");
+      }
+    } finally {
+      copyBtn.disabled = false;
+    }
+  }
+
+  copyBtn.addEventListener("click", requestCopy);
+
+  // ---------- Hotkeys ----------
+  // "d" downloads and "c" copies whatever the popover is currently showing.
+  //
+  // Both stand down completely while focus is in an editable field, so typing
+  // "d" into a search box never triggers a download. Modified keystrokes are
+  // left alone too, so Ctrl/Cmd+D still bookmarks and Ctrl/Cmd+C still copies
+  // the page selection.
+  const EDITABLE_ROLES = ["textbox", "searchbox", "combobox", "spinbutton"];
+
   function isTypingTarget(node) {
     if (!isElement(node)) return false;
     if (node.isContentEditable) return true;
+    // isContentEditable is the right check, but it isn't universally present.
+    // Fall back to the attribute, which is explicitly "false" when editing is
+    // turned off for a subtree.
+    const editable = node.getAttribute && node.getAttribute("contenteditable");
+    if (editable !== null && editable !== undefined && editable !== "false") return true;
     const tag = node.tagName;
-    return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT";
+    if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return true;
+    // Widgets that behave like a text field without being one.
+    const role = node.getAttribute && node.getAttribute("role");
+    return !!role && EDITABLE_ROLES.indexOf(role.toLowerCase()) !== -1;
+  }
+
+  // document.activeElement reports the shadow HOST, not the field inside it, so
+  // descend through open shadow roots to find what is really focused.
+  function deepActiveElement() {
+    let el = document.activeElement;
+    while (el && el.shadowRoot && el.shadowRoot.activeElement) {
+      el = el.shadowRoot.activeElement;
+    }
+    return el;
+  }
+
+  function focusIsEditable(e) {
+    return isTypingTarget(e.target) || isTypingTarget(deepActiveElement());
   }
 
   document.addEventListener("keydown", (e) => {
     if (!active) return;
     if (e.ctrlKey || e.metaKey || e.altKey) return;
-    if (e.key !== "d" && e.key !== "D") return;
-    if (isTypingTarget(e.target) || isTypingTarget(document.activeElement)) return;
+    const isDownload = e.key === "d" || e.key === "D";
+    const isCopy = e.key === "c" || e.key === "C";
+    if (!isDownload && !isCopy) return;
+    if (focusIsEditable(e)) {
+      log("hotkey ignored: focus is in an editable field");
+      return;
+    }
     if (pop.style.display !== "block" || !currentUrl) return;
     e.preventDefault();
     e.stopPropagation();
-    line("hotkey 'd' -> download", currentUrl);
-    requestDownload();
+    if (isDownload) {
+      line("hotkey 'd' -> download", currentUrl);
+      requestDownload();
+    } else {
+      line("hotkey 'c' -> copy", currentUrl);
+      requestCopy();
+    }
   }, true);
 
   // ---------- Pointer wiring ----------

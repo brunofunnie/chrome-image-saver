@@ -103,7 +103,9 @@ const host = document.getElementById("__imageSaverHost__");
 const pop = host && host.querySelector(".is-pop");
 const popImg = host && host.querySelector(".is-img");
 const nameEl = host && host.querySelector(".is-name");
-const btn = host && host.querySelector(".is-btn");
+const btn = host && host.querySelector(".is-download");
+const copyBtn = host && host.querySelector(".is-copy");
+const statusEl = host && host.querySelector(".is-status");
 const isVisible = () => pop && pop.style.display === "block";
 function pressKey(key, target) {
   const ev = new window.KeyboardEvent("keydown", {
@@ -115,7 +117,7 @@ function pressKey(key, target) {
 
 (async () => {
   assert(!!host, "content script injected #__imageSaverHost__ overlay");
-  assert(!!pop && !!btn, "popover + button exist in the overlay");
+  assert(!!pop && !!btn && !!copyBtn, "popover + Download/Copy buttons exist in the overlay");
 
   // --- Inactive: nothing shows regardless of cursor ----------------------
   pointTarget = main;
@@ -258,6 +260,89 @@ function pressKey(key, target) {
   assert(!downloadMsg, "'d' typed into an <input> is ignored");
   input.remove();
 
+  // --- Copy: image bytes readable -> the bitmap goes on the clipboard ---
+  // navigator.clipboard / ClipboardItem / fetch don't exist in jsdom, so stub
+  // them and assert on what the code hands to write().
+  let written = null, writtenText = null, fetchCalls = 0;
+  let fetchImpl = () => Promise.resolve({
+    ok: true, blob: () => Promise.resolve({ type: "image/png" }),
+  });
+  window.fetch = (u) => { fetchCalls++; return fetchImpl(u); };
+  window.ClipboardItem = function (items) { this.items = items; };
+  window.navigator.clipboard = {
+    // The real write() resolves the promise it is handed, so a failed fetch
+    // must surface as a rejected write() — otherwise the URL fallback would
+    // never be exercised.
+    write: async (items) => {
+      await Promise.all(Object.values(items[0].items));
+      written = items;
+    },
+    writeText: async (t) => { writtenText = t; },
+  };
+
+  written = writtenText = null;
+  await sleep(600); // past the dedupe window
+  pressKey("c");
+  await sleep(50);
+  assert(!!written && written.length === 1, "pressing 'c' writes to the clipboard");
+  assert(!!written[0].items["image/png"], "'c' puts the image on the clipboard as image/png");
+  assert(!writtenText, "'c' does not fall back to text when the bytes are readable");
+  assert(statusEl.textContent === "Image copied", "status confirms the image was copied");
+
+  // --- Copy: bytes unreadable (CORS) -> falls back to copying the URL ----
+  written = writtenText = null;
+  fetchImpl = () => Promise.reject(new Error("CORS"));
+  await sleep(600);
+  pressKey("c");
+  await sleep(50);
+  assert(writtenText === "https://example.com/photo1.jpg",
+    "when the image bytes can't be read, 'c' copies the URL instead");
+  assert(statusEl.textContent === "Link copied", "status says the link was copied");
+
+  // --- Copy button click works too --------------------------------------
+  writtenText = null;
+  await sleep(600);
+  copyBtn.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+  await sleep(50);
+  assert(writtenText === "https://example.com/photo1.jpg", "clicking Copy copies as well");
+
+  // --- Ctrl/Cmd+C must stay with the browser ----------------------------
+  written = writtenText = null;
+  await sleep(600);
+  document.dispatchEvent(new window.KeyboardEvent("keydown", {
+    key: "c", ctrlKey: true, bubbles: true, cancelable: true,
+  }));
+  await sleep(20);
+  assert(!written && !writtenText, "Ctrl+C is left to the browser");
+
+  // --- Focused fields disable BOTH hotkeys ------------------------------
+  const cases = [
+    ["input", (el) => { el.type = "text"; }],
+    ["textarea", () => {}],
+    ["select", () => {}],
+    ["div", (el) => { el.setAttribute("contenteditable", "true"); }],
+    ["div", (el) => { el.setAttribute("role", "textbox"); el.tabIndex = 0; }],
+    ["div", (el) => { el.setAttribute("role", "searchbox"); el.tabIndex = 0; }],
+  ];
+  for (const [tag, prep] of cases) {
+    const el = document.createElement(tag);
+    prep(el);
+    document.body.appendChild(el);
+    el.focus();
+    const label = tag + (el.getAttribute("role") ? "[role=" + el.getAttribute("role") + "]" :
+      el.getAttribute("contenteditable") ? "[contenteditable]" : "");
+    downloadMsg = null; written = writtenText = null;
+    await sleep(600);
+    const dEv = pressKey("d", el);
+    const cEv = pressKey("c", el);
+    await sleep(30);
+    assert(!downloadMsg && !written && !writtenText,
+      "focus in " + label + " disables both hotkeys");
+    assert(!dEv.defaultPrevented && !cEv.defaultPrevented,
+      "focus in " + label + " leaves the keystroke to the page");
+    el.remove();
+  }
+
   // --- Travel far from images -> popover hides after grace --------------
   pointTarget = nogroup;
   move(380, 90);
@@ -285,7 +370,8 @@ function pressKey(key, target) {
     contentSrc)(chrome, window, document, window.Element, window.getComputedStyle);
   const hostCount = document.querySelectorAll("#__imageSaverHost__").length;
   assert(hostCount === 1, "second injection reuses the overlay (host count " + hostCount + ")");
-  assert(host.querySelectorAll(".is-btn").length === 1, "only one Download button");
+  assert(host.querySelectorAll(".is-download").length === 1, "only one Download button");
+  assert(host.querySelectorAll(".is-copy").length === 1, "only one Copy button");
 
   console.log(failed === 0 ? "\nALL TESTS PASSED" : `\n${failed} TEST(S) FAILED`);
   process.exit(failed === 0 ? 0 : 1);

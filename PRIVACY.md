@@ -7,9 +7,14 @@
 
 Image Saver does not collect, store, transmit, or sell any personal data.
 
-It makes no network requests of its own. It contains no analytics, no telemetry,
-no advertising, no tracking, no accounts, and no remote code. Nothing about you,
-the pages you visit, or the images you save is ever sent anywhere.
+It sends nothing to the developer or to any third party. It contains no
+analytics, no telemetry, no advertising, no tracking, no accounts, and no remote
+code. Nothing about you, the pages you visit, or the images you save leaves your
+computer.
+
+The extension contacts exactly one kind of address, and only when you ask it to:
+the image you chose to save or copy, at the URL the page is already using for it.
+There is no server belonging to this extension for anything to be sent to.
 
 ## What the extension does with data
 
@@ -37,11 +42,21 @@ The extension does not request access to any website. It relies on Chrome's
 you click the extension's icon on that tab. This is why installing Image Saver
 does not produce a "read and change your data on all websites" prompt.
 
-### Images you download
+### Images you download or copy
 
 When you click **Download** or press **D**, the extension passes the image's URL
 to Chrome's own download mechanism (`chrome.downloads`), which fetches the image
 and saves it to your Downloads folder.
+
+When you press **C** or click **Copy**, the extension requests that same image
+URL in order to read the picture's bytes and place them on your clipboard. If the
+site does not permit reading them, the extension copies the image's URL as text
+instead. Either way the request goes to the site hosting the image and nowhere
+else.
+
+Both actions happen only in direct response to that click or keystroke. The
+extension never fetches anything on its own initiative, and never contacts any
+address other than the image you picked.
 
 Two consequences worth stating plainly:
 
@@ -49,7 +64,7 @@ Two consequences worth stating plainly:
   image from its origin server exactly as it would if you clicked a normal
   download link, so that server sees the same information it would ordinarily
   see (your IP address, your user agent, and so on). The extension neither adds
-  to nor conceals this.
+  to nor conceals this. This applies to copying as well as downloading.
 - **Chrome records the download in its own download history**, as it does for
   any file you save. That history belongs to your browser, not to this
   extension.

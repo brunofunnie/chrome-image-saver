@@ -61,10 +61,17 @@ your browsing.
   Slide onto a different image and the old card disappears at once. Stop again
   and a new card appears for the new image.
 
-• Download with the D key
-  Whatever the card is showing, D saves it. The hotkey stays out of your way: it
-  is ignored while you're typing in a text box, and modified keystrokes are left
-  alone, so Ctrl+D / ⌘+D still bookmarks the page.
+• Download with the D key, copy with the C key
+  Whatever the card is showing, D saves it and C copies it to the clipboard.
+  Where the image's bytes are readable, the picture itself goes on the clipboard,
+  ready to paste into a chat or a document; where the site doesn't allow that,
+  the image's link is copied instead and the card tells you which happened.
+
+• Hotkeys that know when to stay out of the way
+  D and C do nothing at all while you're typing — in a text box, a comment
+  field, a search bar or any other editable area. Modified keystrokes are left
+  alone too, so Ctrl+D / ⌘+D still bookmarks and Ctrl+C / ⌘+C still copies your
+  selection.
 
 • Thumbnail preview before you commit
   See the actual image the extension resolved, plus the filename it will use,
@@ -116,9 +123,12 @@ your browsing.
 
 ── PRIVACY ───────────────────────────────────
 
-Image Saver makes no network requests of its own. It has no analytics, no
-telemetry, and no remote code. Nothing about the pages you visit, the images you
-save, or anything else ever leaves your computer.
+Image Saver has no analytics, no telemetry, and no remote code, and there is no
+server behind it. Nothing about the pages you visit, the images you save, or
+anything else is ever sent to the developer or to anyone else.
+
+The only address it contacts is the image you asked it to save or copy, at the
+URL the page is already using — and only at the moment you ask.
 
 It does not request access to any website. There is no "read and change your
 data on all sites" prompt, because the extension only ever touches a tab at the
@@ -186,8 +196,10 @@ certifications:
 - Does not use or transfer user data for purposes unrelated to the item's single purpose
 - Does not use or transfer user data to determine creditworthiness or for lending purposes
 
-Rationale: the extension makes no network requests, contains no analytics, and
-persists nothing beyond a per-tab boolean in session storage.
+Rationale: the extension has no back end and transmits nothing to the developer
+or to third parties. Its only outbound request is for the image the user
+explicitly chose to save or copy, sent to that image's own host. It contains no
+analytics and persists nothing beyond a per-tab boolean in session storage.
 
 ---
 
