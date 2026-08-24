@@ -209,6 +209,15 @@ analytics and persists nothing beyond a per-tab boolean in session storage.
 
 ---
 
+## Packaging
+
+```sh
+npm test && npm run build
+```
+
+Produces `dist/image-saver-<version>.zip` with only the runtime files. Upload
+that at https://chrome.google.com/webstore/devconsole.
+
 ## Assets checklist
 
 - [x] Icon 128×128 — `icons/icon128.png`

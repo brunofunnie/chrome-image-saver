@@ -74,6 +74,7 @@ nothing behind it.
 - `content.js` — hover detection, dwell timing, image resolution, popover UI,
   `D` hotkey.
 - `background.js` — service worker: toggles mode, updates badge, downloads.
+- `build.js` — packages the extension for the Chrome Web Store (see below).
 - `generate-icons.js` — squares and downscales `docs/image-saver.png` into
   `icons/icon{16,48,128}.png`. Zero dependencies: the PNG decoder, the box-filter
   resampler and the PNG encoder are all in the file, built on Node's `zlib`.
@@ -91,6 +92,36 @@ nothing behind it.
 npm install     # installs jsdom (dev-only)
 npm test        # runs the content-script + background test suites
 npm run icons   # regenerates icons/icon{16,48,128}.png from docs/image-saver.png
+npm run build   # packages dist/image-saver-<version>.zip for the Web Store
+
+## Building for the Chrome Web Store
+
+```sh
+npm run build      # writes dist/image-saver-<version>.zip
+```
+
+The zip contains **only** what Chrome needs to run the extension — currently
+`manifest.json`, `background.js`, `content.js` and the three generated icons.
+The tests, the source artwork, the docs and the build scripts stay out: anything
+shipped in the package is publicly downloadable once the item is published.
+
+The file list is derived from `manifest.json` rather than hard-coded, plus any
+script passed to `chrome.scripting.executeScript` (that's how `content.js` gets
+in — it is deliberately not declared in the manifest). Adding a new injected
+file without bundling it is a build error, not a runtime surprise.
+
+The build refuses to produce a package when:
+
+- `manifest.json` and `package.json` disagree about the version
+- the manifest version isn't a valid Chrome version string
+- the manifest description is over the Web Store's 132-character limit
+- the 128px icon the Web Store requires is missing
+- any referenced file isn't on disk
+
+Timestamps in the archive are fixed, so the same inputs always produce a
+byte-identical zip. Upload the result at
+[the developer dashboard](https://chrome.google.com/webstore/devconsole); the
+listing copy lives in [`docs/store-listing.md`](docs/store-listing.md).
 
 ## Manual test
 

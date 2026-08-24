@@ -5,6 +5,7 @@
   "description": "Chrome extension to hover-download images. + dev tests.",
   "scripts": {
     "test": "node test-content.js && node test-background.js",
+    "build": "node build.js",
     "icons": "node generate-icons.js"
   },
   "devDependencies": {

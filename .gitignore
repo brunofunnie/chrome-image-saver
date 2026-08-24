@@ -7,3 +7,6 @@ npm-debug.log*
 
 # build artifacts
 *.zip
+
+# build output
+dist/
