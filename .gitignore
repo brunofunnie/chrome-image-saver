@@ -4,3 +4,6 @@ npm-debug.log*
 *.log
 .DS_Store
 .serena/
+
+# build artifacts
+*.zip
