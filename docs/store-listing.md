@@ -103,10 +103,11 @@ your browsing.
   toolbar icon. Install it, or update it, and it works on the tabs you already
   have open — no reloading, no restarting the browser.
 
-• Off by default, and per-tab
+• Off by default, and strictly per-tab
   Nothing runs anywhere until you switch it on, and switching it on affects only
-  that one tab. Other tabs are untouched. The "ON" badge tells you exactly where
-  it's live.
+  that one tab. Other tabs are untouched, and the "ON" badge tells you exactly
+  where it's live. Refreshing a tab keeps it on; the badge and the actual
+  behaviour never drift apart, so the button always means what it says.
 
 • Handles cross-origin images
   Downloads are performed by the extension itself rather than the page, so
@@ -147,8 +148,11 @@ https://github.com/brunofunnie/chrome-image-saver
 ── GOOD TO KNOW ──────────────────────────────
 
 • Chrome does not allow extensions to run on its own pages (chrome://, the
-  Chrome Web Store, and similar). Image Saver can't work there, and no toast
-  will appear.
+  Chrome Web Store, and similar). Image Saver can't work there, and the badge
+  won't light up.
+• Following a link to a different site switches the mode off for that tab, since
+  the browser withdraws the extension's access at that point. Click the icon
+  again on the new page.
 • For local file:// pages, enable "Allow access to file URLs" on the
   extension's details page.
 • Images inside embedded frames on a page are not currently covered.

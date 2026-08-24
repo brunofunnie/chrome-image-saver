@@ -166,12 +166,20 @@
   }
 
   // ---------- Active-mode messaging ----------
-  chrome.runtime.onMessage.addListener((msg) => {
+  chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     log("runtime.onMessage", msg);
+    // Liveness check. The background uses this to tell a tab that still has a
+    // working content script from one whose script was destroyed by a
+    // navigation, so it only injects when it actually needs to.
+    if (msg && msg.type === "ping") {
+      sendResponse({ pong: true, overlay: OVERLAY_VERSION });
+      return false;
+    }
     if (msg && msg.type === "set-active") {
       gotBroadcast = true;
       setActive(!!msg.active);
     }
+    return false;
   });
 
   // The content script doesn't know its own tab id, so it asks the background

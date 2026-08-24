@@ -18,6 +18,12 @@ const broadcasts = []; // {tabId,message}
 let downloadCalls = [];
 const callbacks = {}; // event -> fn
 let injectedTabs = []; // tabIds executeScript targeted
+// Tabs that currently have a live content script. An injected script does NOT
+// survive a navigation, so the fake navigation helper clears the entry.
+const liveScripts = new Set();
+// Tabs where executeScript is refused, standing in for a page the extension
+// can't touch (chrome://) or a tab whose activeTab grant has been revoked.
+const blockedTabs = new Set();
 
 function makeChrome() {
   return {
@@ -34,14 +40,25 @@ function makeChrome() {
     },
     tabs: {
       async sendMessage(tabId, m) {
+        // A ping only gets an answer when a content script is actually alive
+        // in that tab; otherwise the real API rejects.
+        if (m && m.type === "ping") {
+          if (!liveScripts.has(tabId)) throw new Error("Receiving end does not exist");
+          return { pong: true };
+        }
         broadcasts.push({ tabId, message: m });
+        if (!liveScripts.has(tabId)) throw new Error("Receiving end does not exist");
         return true;
       },
+      onUpdated: { addListener(fn) { callbacks.onUpdated = fn; } },
+      onRemoved: { addListener(fn) { callbacks.onRemoved = fn; } },
     },
     scripting: {
       async executeScript(o) {
         const target = o.target || {};
+        if (blockedTabs.has(target.tabId)) throw new Error("Cannot access contents of the page");
         injectedTabs.push(target.tabId);
+        liveScripts.add(target.tabId);
         return [];
       },
     },
@@ -54,6 +71,13 @@ function makeChrome() {
       download(o) { downloadCalls.push(o); return Promise.resolve(1); },
     },
   };
+}
+
+// A navigation destroys the injected content script and then reports
+// status "complete" for the new document.
+async function navigate(tabId) {
+  liveScripts.delete(tabId);
+  if (callbacks.onUpdated) await callbacks.onUpdated(tabId, { status: "complete" }, { id: tabId });
 }
 
 const chrome = makeChrome();
@@ -113,6 +137,79 @@ vm.runInContext(fs.readFileSync(path.join(__dirname, "background.js"), "utf8"), 
   });
   assert(downloadCalls.length === 0 && iresp && iresp.ok === false,
     "invalid (script:) url rejected without calling download");
+
+  // --- Refreshing a tab keeps it working --------------------------------
+  // The content script is injected, not declared in the manifest, so it does
+  // not survive a reload. If nothing re-injects it, the badge keeps claiming
+  // ON over a page where the extension is dead.
+  const t = 201;
+  injectedTabs = [];
+  await callbacks.onClicked({ id: t });
+  assert(badge[t] === "ON", "tab 201 is ON after the click");
+  injectedTabs = [];
+  await navigate(t);
+  assert(injectedTabs.includes(t), "content.js is re-injected after a refresh");
+  assert(badge[t] === "ON", "tab stays ON across a refresh");
+  assert(sessionMap.imageSaverActive[t] === true, "per-tab state survives the refresh");
+
+  // --- One click after a refresh turns it OFF, not ON -------------------
+  // (i.e. the toggle is not left out of step by the reload)
+  await callbacks.onClicked({ id: t });
+  assert(badge[t] === "" || badge[t] === null,
+    "a single click after a refresh turns the tab OFF");
+
+  // --- Navigating somewhere we can no longer inject turns the mode off --
+  const t2 = 202;
+  await callbacks.onClicked({ id: t2 });
+  assert(badge[t2] === "ON", "tab 202 is ON before navigating away");
+  blockedTabs.add(t2); // e.g. a cross-origin navigation revoking activeTab
+  await navigate(t2);
+  assert(badge[t2] === "" || badge[t2] === null,
+    "badge is cleared when the extension can no longer run in the tab");
+  assert(!sessionMap.imageSaverActive[t2],
+    "state is cleared when the extension can no longer run in the tab");
+
+  // --- A tab that is OFF is never injected on navigation ----------------
+  const t3 = 203;
+  injectedTabs = [];
+  await navigate(t3);
+  assert(!injectedTabs.includes(t3), "navigating an OFF tab does not inject anything");
+
+  // --- Closing a tab clears its state -----------------------------------
+  // Otherwise the entry outlives the tab and a later tab reusing the id
+  // inherits an ON state it never asked for.
+  const t4 = 204;
+  await callbacks.onClicked({ id: t4 });
+  assert(sessionMap.imageSaverActive[t4] === true, "tab 204 is ON");
+  await callbacks.onRemoved(t4, {});
+  assert(!sessionMap.imageSaverActive[t4], "closing a tab clears its per-tab state");
+
+  // --- State really is per tab ------------------------------------------
+  const a = 205, b = 206;
+  await callbacks.onClicked({ id: a });
+  let aResp = null, bResp = null;
+  await new Promise((res) => callbacks.onMessage({ type: "get-state" }, { tab: { id: a } }, (r) => { aResp = r; res(); }));
+  await new Promise((res) => callbacks.onMessage({ type: "get-state" }, { tab: { id: b } }, (r) => { bResp = r; res(); }));
+  assert(aResp && aResp.active === true, "tab 205 reports active");
+  assert(bResp && bResp.active === false, "untouched tab 206 reports inactive");
+  assert(badge[b] !== "ON", "untouched tab 206 has no badge");
+
+  // --- Already-injected tab is not injected twice -----------------------
+  // Every click used to inject another copy, stacking duplicate listeners.
+  const t5 = 207;
+  await callbacks.onClicked({ id: t5 }); // ON, injects
+  await callbacks.onClicked({ id: t5 }); // OFF
+  injectedTabs = [];
+  await callbacks.onClicked({ id: t5 }); // ON again, script still alive
+  assert(!injectedTabs.includes(t5),
+    "a tab that still has a live content script is not injected again");
+
+  // --- A page that cannot be injected must not claim to be ON -----------
+  const t6 = 208;
+  blockedTabs.add(t6);
+  await callbacks.onClicked({ id: t6 });
+  assert(badge[t6] !== "ON", "a page that can't be injected does not show an ON badge");
+  assert(!sessionMap.imageSaverActive[t6], "a page that can't be injected is not recorded as ON");
 
   console.log(failed === 0 ? "\nALL BACKGROUND TESTS PASSED" : `\n${failed} TEST(S) FAILED`);
   process.exit(failed === 0 ? 0 : 1);

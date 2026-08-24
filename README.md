@@ -38,6 +38,26 @@
 > ("Image Saver ON/OFF") appears at the top of the page as instant confirmation
 > the script is live in that tab.
 
+### State is per tab
+
+Each tab has its own ON/OFF state; turning it on in one tab never affects
+another. The state is held in `chrome.storage.session`, so it survives the
+service worker being shut down and restarted, and is dropped when the browser
+closes.
+
+An injected content script does **not** survive a navigation, so the background
+re-injects it when a tab that is ON finishes loading. That means a **refresh
+keeps working** — the badge and the actual behaviour stay in step.
+
+The one case where the mode turns itself off is a navigation to a **different
+origin**: `activeTab` access is revoked at that point, so the extension can no
+longer run in that tab. Rather than leave an ON badge over a page where nothing
+works, it clears the state and the badge. Click the icon again on the new page.
+
+For the same reason, clicking the icon on a page that can't be injected (a
+`chrome://` page, the Web Store) does not light up the badge — there'd be
+nothing behind it.
+
 ## Loading the extension (unpacked)
 
 1. Open Chrome and go to `chrome://extensions`.
