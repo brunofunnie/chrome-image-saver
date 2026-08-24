@@ -111,6 +111,13 @@ working.
 The hotkey is ignored while you're typing in an input, textarea, or
 contenteditable, and when a modifier is held (so `Ctrl/Cmd+D` still bookmarks).
 
+## Privacy
+
+Image Saver makes no network requests, has no analytics or remote code, and
+stores nothing beyond a per-tab on/off flag in session storage. It requests no
+host permissions — only `activeTab`, granted for the one tab whose icon you
+click. See [PRIVACY.md](PRIVACY.md).
+
 ## Notes / limitations
 
 - One prominent image per element (its own `<img>` or the largest descendant).

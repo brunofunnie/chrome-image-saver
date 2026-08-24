@@ -167,6 +167,16 @@ the user's Downloads folder — serves that single purpose.
 Remote code: **No.** All code is bundled in the package; nothing is fetched or
 evaluated at runtime.
 
+## Privacy policy URL
+
+The Web Store form requires a hosted URL. Use the file in this repository:
+
+```
+https://github.com/brunofunnie/chrome-image-saver/blob/main/PRIVACY.md
+```
+
+Keep `PRIVACY.md` in sync with any behaviour change that affects it.
+
 ## Data usage disclosures
 
 Check **none** of the data collection categories. Then confirm all three
