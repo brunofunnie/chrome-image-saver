@@ -1,6 +1,6 @@
 {
   "name": "image-saver",
-  "version": "1.0.6",
+  "version": "1.0.7",
   "private": true,
   "description": "Chrome extension to hover-download images. + dev tests.",
   "scripts": {

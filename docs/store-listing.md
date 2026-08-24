@@ -74,8 +74,10 @@ your browsing.
   selection.
 
 • Thumbnail preview before you commit
-  See the actual image the extension resolved, plus the filename it will use,
-  before you save anything.
+  See the actual image the extension resolved, the filename it will use, and the
+  picture's true resolution — its full intrinsic size, not the size the page
+  happens to display it at — before you save anything. Handy for telling a
+  full-size photo apart from a thumbnail of it.
 
 • Finds images that are hard to right-click
   Many sites bury images under transparent overlays, wrap them in link layers,

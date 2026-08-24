@@ -73,6 +73,11 @@ function setRect(el, r) {
     value: () => r,
   });
 }
+// jsdom doesn't decode images, so naturalWidth/naturalHeight are always 0.
+function setNatural(el, w, h) {
+  Object.defineProperty(el, "naturalWidth", { configurable: true, value: w });
+  Object.defineProperty(el, "naturalHeight", { configurable: true, value: h });
+}
 const main = document.getElementById("main");
 const card1 = document.getElementById("card1");
 const label = document.getElementById("label");
@@ -83,6 +88,8 @@ setRect(main, rect(0, 0, 300, 120));
 setRect(card1, rect(0, 0, 300, 120));
 setRect(label, rect(0, 120, 300, 240));
 setRect(small, rect(320, 0, 380, 60));
+setNatural(main, 1200, 800);
+setNatural(small, 64, 64);
 setRect(nogroup, rect(320, 100, 400, 140));
 setRect(text, rect(320, 100, 400, 140));
 
@@ -106,6 +113,7 @@ const nameEl = host && host.querySelector(".is-name");
 const btn = host && host.querySelector(".is-download");
 const copyBtn = host && host.querySelector(".is-copy");
 const statusEl = host && host.querySelector(".is-status");
+const dimsEl = host && host.querySelector(".is-dims");
 const isVisible = () => pop && pop.style.display === "block";
 function pressKey(key, target) {
   const ev = new window.KeyboardEvent("keydown", {
@@ -144,6 +152,9 @@ function pressKey(key, target) {
   assert(popImg.getAttribute("src") === "https://example.com/photo1.jpg",
     "thumbnail src matches the image under the cursor");
   assert(nameEl.textContent === "photo1.jpg", "filename derived: photo1.jpg");
+  assert(dimsEl.textContent === "1200 \u00d7 800",
+    "intrinsic resolution shown under the filename (1200 x 800)");
+  assert(dimsEl.style.display === "block", "resolution line is visible");
   assert(!btn.disabled, "Download button enabled");
   const pos1 = pop.style.left + "/" + pop.style.top;
   // Move within the image: popover stays anchored (does NOT chase the cursor,
@@ -167,12 +178,15 @@ function pressKey(key, target) {
   assert(isVisible(), "popover shows for the small standalone image");
   assert(popImg.getAttribute("src") === "https://example.com/thumb.gif",
     "small image src used: thumb.gif");
+  assert(dimsEl.textContent === "64 \u00d7 64",
+    "resolution follows the newly shown image (64 x 64)");
 
   // --- Non-image element -------------------------------------------------
   pointTarget = text;
   move(360, 120);
   await sleep(500); // wait out the 350ms grace period
   assert(!isVisible(), "no popover on an element with no image");
+  assert(dimsEl.style.display === "none", "resolution line cleared when the popover hides");
 
   // --- Deeper-level walk: a child of a container whose parent contains ---
   // an image COVERING the cursor still resolves it (walk-up).

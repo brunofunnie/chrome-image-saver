@@ -22,9 +22,10 @@
    the tab you clicked from.
 2. While ON, move the cursor over an element that contains an image (an `<img>`,
    a CSS `background-image`, or a `<picture>/srcset`) and **stop moving**. After
-   a short pause (~200 ms at rest) a floating thumbnail with a **Download**
-   button appears, anchored where the cursor stopped. It does **not** follow the
-   mouse, so the button is easy to hit.
+   a short pause (~200 ms at rest) a floating card appears, anchored where the
+   cursor stopped. It shows a thumbnail, the filename, the image's intrinsic
+   resolution (e.g. `1200 × 800`) and the action buttons. It does **not** follow
+   the mouse, so the buttons are easy to hit.
 3. Click **Download**, or just press **`D`** — the image saves straight to your
    default Downloads folder, named from its URL. Press **`C`** (or click
    **Copy**) to put the image on the clipboard instead.
@@ -155,6 +156,10 @@ only at the moment you ask. See [PRIVACY.md](PRIVACY.md).
 ## Notes / limitations
 
 - One prominent image per element (its own `<img>` or the largest descendant).
+- The resolution shown is the image's **intrinsic** size (`naturalWidth` ×
+  `naturalHeight`), not the size it happens to be displayed at. For a CSS
+  background it can only be measured once the card's own thumbnail has loaded,
+  so it appears a moment after the card does.
 - The popover is dwell-triggered: it appears only after the pointer has been at
   rest over an image for ~200 ms, never while the mouse is in motion.
 - Tiny 1×1 "tracking" images are ignored.

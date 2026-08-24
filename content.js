@@ -50,7 +50,7 @@
   // survives an extension reload: a page can still be holding an overlay built
   // by an OLDER copy. Reusing it would leave the new code querying for elements
   // that aren't in it. Stamp a version and rebuild when it doesn't match.
-  const OVERLAY_VERSION = "2";
+  const OVERLAY_VERSION = "3";
   const staleHost = document.getElementById("__imageSaverHost__");
   if (staleHost && staleHost.dataset.isOverlay !== OVERLAY_VERSION) {
     line("replacing an overlay built by an older version");
@@ -92,7 +92,10 @@
         line-height: 14px; font-weight: 700; }
       #__imageSaverHost__ .is-name { font-size: 11px; color: #d1d5db;
         text-align: center; overflow: hidden; text-overflow: ellipsis;
-        white-space: nowrap; margin-bottom: 6px; }
+        white-space: nowrap; margin-bottom: 2px; }
+      #__imageSaverHost__ .is-dims { font-size: 10px; color: #9ca3af;
+        text-align: center; font-variant-numeric: tabular-nums;
+        margin-bottom: 6px; }
       #__imageSaverHost__ .is-status { font-size: 11px; color: #9ca3af;
         text-align: center; margin-bottom: 4px; }
       #__imageSaverHost__ .is-status-ok { color: #4ade80; }
@@ -109,6 +112,7 @@
       <div class="is-pop" style="display:none">
         <div class="is-imgwrap"><img class="is-img" alt=""></div>
         <div class="is-name"></div>
+        <div class="is-dims" style="display:none"></div>
         <div class="is-status" style="display:none"></div>
         <div class="is-actions">
           <button class="is-btn is-download">Download <span class="is-kbd">D</span></button>
@@ -122,6 +126,7 @@
   const pop = host.querySelector(".is-pop");
   const imgEl = host.querySelector(".is-img");
   const nameEl = host.querySelector(".is-name");
+  const dimsEl = host.querySelector(".is-dims");
   const statusEl = host.querySelector(".is-status");
   const btn = host.querySelector(".is-download");
   const copyBtn = host.querySelector(".is-copy");
@@ -296,7 +301,7 @@
   function placePopoverAt(x, y) {
     const gap = 8;
     const pw = 184 + 16; // content width + padding
-    const ph = 188;      // estimated height
+    const ph = 202;      // estimated height
     const vw = window.innerWidth;
     const vh = window.innerHeight;
     let left = x + 16;
@@ -325,6 +330,35 @@
     if (holdMs) statusTimer = setTimeout(() => setStatus(null), holdMs);
   }
 
+  // The image's intrinsic resolution, shown under the filename. For an <img>
+  // that has already decoded we can read it straight off the element; for a CSS
+  // background (or an <img> still loading) there is nothing to read yet, so we
+  // fall back to the preview thumbnail's own load event further down.
+  function setDims(w, h) {
+    if (!w || !h) {
+      dimsEl.style.display = "none";
+      dimsEl.textContent = "";
+      return;
+    }
+    dimsEl.textContent = w + " \u00d7 " + h;
+    dimsEl.style.display = "block";
+  }
+
+  function naturalSizeOf(element) {
+    if (!isElement(element) || element.tagName !== "IMG") return null;
+    const w = element.naturalWidth || 0;
+    const h = element.naturalHeight || 0;
+    return w && h ? { w, h } : null;
+  }
+
+  // The preview <img> loads the same URL as the image being offered, so its
+  // natural size is the answer for every case the element itself can't give us.
+  imgEl.addEventListener("load", () => {
+    if (!currentUrl) return;
+    setDims(imgEl.naturalWidth, imgEl.naturalHeight);
+  });
+  imgEl.addEventListener("error", () => setDims(0, 0));
+
   function showPopover(hit, x, y) {
     if (currentUrl === hit.url && pop.style.display === "block") {
       // Same image already showing: keep the anchor exactly where it first
@@ -335,6 +369,10 @@
     line("show popover: url =", hit.url);
     imgEl.src = hit.url;
     nameEl.textContent = filenameFromUrl(hit.url);
+    // Show the size immediately when the page's own <img> already knows it,
+    // so the line doesn't pop in a moment later.
+    const natural = naturalSizeOf(hit.element);
+    setDims(natural && natural.w, natural && natural.h);
     setStatus(null);
     btn.disabled = false;
     copyBtn.disabled = false;
@@ -370,6 +408,7 @@
     cancelDwell();
     pop.style.display = "none";
     imgEl.removeAttribute("src");
+    setDims(0, 0);
     currentUrl = null;
     btn.disabled = false;
     copyBtn.disabled = false;
