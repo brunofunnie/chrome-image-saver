@@ -1,6 +1,6 @@
 // Standalone script to generate the extension icons as PNGs.
 //
-// Source of truth is icons/image-saver.png (the full-resolution artwork). This
+// Source of truth is docs/image-saver.png (the full-resolution artwork). This
 // script pads it to a square, downscales it to 16/48/128 and writes
 // icons/icon{16,48,128}.png.
 //
@@ -11,7 +11,7 @@ const zlib = require("zlib");
 const fs = require("fs");
 const path = require("path");
 
-const SRC = path.join(__dirname, "icons", "image-saver.png");
+const SRC = path.join(__dirname, "docs", "image-saver.png");
 const SIZES = [16, 48, 128];
 
 // ---------------------------------------------------------------- PNG common

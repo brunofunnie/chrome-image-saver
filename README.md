@@ -1,7 +1,19 @@
-# Image Saver
+<p align="center">
+  <img src="docs/image-saver.png" alt="Image Saver" width="128">
+</p>
 
-A Chrome (Manifest V3) extension that lets you hover over an element on any page
-and download the image inside it in one click.
+<h1 align="center">Image Saver</h1>
+
+<p align="center">
+  A Chrome (Manifest V3) extension that lets you park the cursor over any image
+  on a page and save it with one click — or one keystroke.
+</p>
+
+<p align="center">
+  <img src="docs/image-saver-cover.png"
+       alt="Illustration of the Image Saver preview card appearing over an image in a feed, with a green Download button"
+       width="820">
+</p>
 
 ## How it works
 
@@ -38,11 +50,13 @@ and download the image inside it in one click.
 - `content.js` — hover detection, dwell timing, image resolution, popover UI,
   `D` hotkey.
 - `background.js` — service worker: toggles mode, updates badge, downloads.
-- `generate-icons.js` — squares and downscales `icons/image-saver.png` into
+- `generate-icons.js` — squares and downscales `docs/image-saver.png` into
   `icons/icon{16,48,128}.png`. Zero dependencies: the PNG decoder, the box-filter
   resampler and the PNG encoder are all in the file, built on Node's `zlib`.
-- `icons/` — `image-saver.png` is the source artwork; the `icon*.png` files are
-  generated from it and are what `manifest.json` ships.
+- `icons/` — the generated `icon*.png` files, which are what `manifest.json`
+  ships. Regenerate them with `npm run icons` rather than editing them.
+- `docs/` — `image-saver.png` (source artwork), `image-saver-cover.png` (README
+  cover) and `store-listing.md` (Chrome Web Store copy).
 - `test.html` — a local page to try the extension against.
 - `test-content.js`, `test-background.js` — jsdom tests for the hover logic and
   the service worker. Run with `npm install` then `npm test`.
@@ -52,7 +66,7 @@ and download the image inside it in one click.
 ```sh
 npm install     # installs jsdom (dev-only)
 npm test        # runs the content-script + background test suites
-npm run icons   # regenerates icons/icon{16,48,128}.png from icons/image-saver.png
+npm run icons   # regenerates icons/icon{16,48,128}.png from docs/image-saver.png
 
 ## Manual test
 
